@@ -17,7 +17,7 @@ const HELP = (owner) =>
     '',
     '/start - show this help',
     '/help - show this help',
-    '/order <amount> - create a payin order (e.g. /order 100.00)',
+    '/d <amount> - create a payin order (e.g. /order 100.00)',
     '/status <payOrderNo> - check an order',
     owner ? '/reg - register this group (owner only, run inside the group)' : null,
     owner ? '/gmsg <text> - send a message (owner only)' : null,
@@ -38,7 +38,7 @@ async function handleOrder(ctx, config) {
   }
   const args = (ctx.message?.text || '').trim().split(/\s+/).slice(1);
   const amount = args[0];
-  if (!amount) return ctx.reply('Usage: /order <amount> (e.g. /order 100.00)');
+  if (!amount) return ctx.reply('Usage: /d <amount> (e.g. /order 100.00)');
 
   try {
     const port = process.env.PORT || 4000;
@@ -96,7 +96,7 @@ export function register(bot, config) {
     return ctx.reply(HELP(owner));
   });
 
-  bot.command('order', async (ctx) => {
+  bot.command('d', async (ctx) => {
     const chat = ctx.chat || {};
     const from = ctx.from || {};
     if (chat.type === 'private' && !isOwner(from, config)) {

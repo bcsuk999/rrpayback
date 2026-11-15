@@ -5,6 +5,8 @@ import openApiSpec from './docs/openapi.js';
 import payinRouter from './routes/payin.js';
 import payRouter from './routes/pay.js';
 import groupsRouter from './routes/groups.js';
+import adminAuthRouter from './routes/adminAuth.js';
+import adminRouter from './routes/admin.js';
 
 const app = express();
 
@@ -21,6 +23,8 @@ app.get('/health', (req, res) => {
 app.use('/payin', payinRouter);
 app.use('/pay', payRouter);
 app.use('/groups', groupsRouter);
+app.use('/admin/auth', adminAuthRouter);
+app.use('/admin', adminRouter);
 
 app.get('/', (req, res) => res.redirect('/docs'));
 
