@@ -372,3 +372,209 @@ Brazil
 Currency Code
 Currency Name
 BRL Brazilian Real
+Payment type
+India: Category 1
+Currency
+Payment type coding
+Payment type name
+INR INRO Indian native
+INR INRT India awakens
+INR SCAN Indian QR code scanning
+India: Category II
+Currency
+Payment type coding
+Payment type name
+INRTWO SCANTWO Indian Category 2 - QR code scanning/UPI Code 12
+Mexico: Category 1
+Currency
+Payment type coding
+Payment type name
+MXN MXN01 Mexican payment
+Pakistan: Category 1
+Currency
+Payment type coding
+Payment type name
+PKR Jazzcash JazzCash - Mobile Wallet
+PKR Easypaisa Easypaisa - Mobile Wallet
+PKR Jazzcash_Direct JazzCash Direct Payment
+PKR Easypaisa_Direct Easypaisa direct payment
+PKR Easypaisa_QR EasyPaisa QR code scanning
+PKR Jazzcash_QR Jazzcash QR code
+PKR Jazzcash_ZZ Jazzcash transfer
+Vietnam
+Currency
+Payment type coding
+Payment type name
+VND BANKSCAN Online banking QR code
+Indonesia
+Currency
+Payment type coding
+Payment type name
+IDR QR Indonesian QR code payment
+IDR DAYS DANA eWallet
+IDR AND bank transfer
+Bengal
+Currency
+Payment type coding
+Payment type name
+BDT NAGAD Bangladesh NAGAD Wallet
+BDT BKASH BKASH Wallet (Bangladesh)
+BDT ROCKET Bangladesh ROCKET Wallet
+BDT BANK Bangladesh online banking
+the Philippines
+Currency
+Payment type coding
+Payment type name
+PHP GCASH Philippines GCASH native
+Brazil
+Currency
+Payment type coding
+Payment type name
+BRL PIX Brazilian PIX
+
+# 印度：一类
+
+| <center>所属币种</center> | <center>支付类型编码</center> | <center>支付类型名称</center> |
+| :------------------------ | :---------------------------- | ----------------------------- |
+| INR                       | INRO                          | 印度原生                      |
+| INR                       | INRT                          | 印度唤醒                      |
+| INR                       | SCAN                          | 印度扫码                      |
+
+# 印度：二类
+
+| <center>所属币种</center> | <center>支付类型编码</center> | <center>支付类型名称</center> |
+| :------------------------ | :---------------------------- | ----------------------------- |
+| INRTWO                    | SCANTWO                       | 印度二类-二维码扫码/UPI十二码 |
+
+# 墨西哥：一类
+
+| <center>所属币种</center> | <center>支付类型编码</center> | <center>支付类型名称</center> |
+| :------------------------ | :---------------------------- | ----------------------------- |
+| MXN                       | MXN01                         | 墨西哥支付                    |
+
+# 巴基斯坦：一类
+
+| <center>所属币种</center> | <center>支付类型编码</center> | <center>支付类型名称</center> |
+| :------------------------ | :---------------------------- | ----------------------------- |
+| PKR                       | Jazzcash                      | JazzCash-移动钱包             |
+| PKR                       | Easypaisa                     | Easypaisa-移动钱包            |
+| PKR                       | Jazzcash_Direct               | JazzCash直连支付              |
+| PKR                       | Easypaisa_Direct              | Easypaisa直连支付             |
+| PKR                       | Easypaisa_QR                  | Easypaisa扫码                 |
+| PKR                       | Jazzcash_QR                   | Jazzcash扫码                  |
+| PKR                       | Jazzcash_ZZ                   | Jazzcash转账                  |
+
+# 越南
+
+| <center>所属币种</center> | <center>支付类型编码</center> | <center>支付类型名称</center> |
+| :------------------------ | :---------------------------- | ----------------------------- |
+| VND                       | BANKSCAN                      | 网银扫码                      |
+
+# 印尼
+
+| <center>所属币种</center> | <center>支付类型编码</center> | <center>支付类型名称</center> |
+| :------------------------ | :---------------------------- | ----------------------------- |
+| IDR                       | QR                            | 印尼扫码支付                  |
+| IDR                       | DANA                          | DANA电子钱包                  |
+| IDR                       | VA                            | 银行转账                      |
+
+# 孟加拉
+
+| <center>所属币种</center> | <center>支付类型编码</center> | <center>支付类型名称</center> |
+| :------------------------ | :---------------------------- | ----------------------------- |
+| BDT                       | NAGAD                         | 孟加拉NAGAD钱包               |
+| BDT                       | BKASH                         | 孟加拉BKASH钱包               |
+| BDT                       | ROCKET                        | 孟加拉ROCKET钱包              |
+| BDT                       | BANK                          | 孟加拉网银                    |
+
+# 菲律宾
+
+| <center>所属币种</center> | <center>支付类型编码</center> | <center>支付类型名称</center> |
+| :------------------------ | :---------------------------- | ----------------------------- |
+| PHP                       | GCASH                         | 菲律宾GCASH原生               |
+
+# 巴西
+
+| <center>所属币种</center> | <center>支付类型编码</center> | <center>支付类型名称</center> |
+| :------------------------ | :---------------------------- | ----------------------------- |
+| BRL                       | PIX                           | 巴西PIX                       |
+
+##### 印度：一类
+
+| <center>币种编码</center> | <center>币种名称</center> |
+| :------------------------ | ------------------------- |
+| INR                       | 印度                      |
+
+##### 印度：二类
+
+| <center>币种编码</center> | <center>币种名称</center> |
+| :------------------------ | ------------------------- |
+| INRTWO                    | 印度二类                  |
+
+##### 墨西哥：一类
+
+| <center>币种编码</center> | <center>币种名称</center> |
+| :------------------------ | ------------------------- |
+| MXN                       | 墨西哥                    |
+
+##### 巴基斯坦：一类
+
+| <center>币种编码</center> | <center>币种名称</center> |
+| :------------------------ | ------------------------- |
+| PKR                       | 巴基斯坦                  |
+
+##### 越南
+
+| <center>币种编码</center> | <center>币种名称</center> |
+| :------------------------ | ------------------------- |
+| VND                       | 越南                      |
+
+##### 印尼
+
+| <center>币种编码</center> | <center>币种名称</center> |
+| :------------------------ | ------------------------- |
+| IDR                       | 印尼                      |
+
+##### 孟加拉
+
+| <center>币种编码</center> | <center>币种名称</center> |
+| :------------------------ | ------------------------- |
+| BDT                       | 孟加拉                    |
+
+##### 菲律宾
+
+| <center>币种编码</center> | <center>币种名称</center> |
+| :------------------------ | ------------------------- |
+| PHP                       | 菲律宾比索                |
+
+##### 巴西
+
+| <center>币种编码</center> | <center>币种名称</center> |
+| :------------------------ | ------------------------- |
+| BRL                       | 巴西雷亚尔                |
+
+#### MD5安全签名机制是商户与平台约定的一个签名密钥，每次在做签名时将商户密钥拼接在待签名字符串后面，然后经MD5加密运算后得到一个签名串，商户和我方在校验时也采用同样的方式得到签名串，经对比后确认签名是否一致，如果一致，则签名通过，否则返回签名错误报文。
+
+## 签名规则
+
+##### 1. 请将请求参数字段按照Ascii码方式进行升序排序（参数名a到z的顺序排序，若遇到相同的首字母，则看第二个字母，以此类推），字段值为空的不参与签名，组成json字符串，在其后拼接上商户密钥，进行MD5加密，待加密字符串格式如下：
+
+##### {"参数名1":"参数值1","参数名2":"参数值2",…….,"参数名n":"参数值n"}商家秘钥
+
+案例如：
+{"merNo":"123456789","notifyUrl":"http******\*******","outTradeNo":"112233445566778899","randomNo":"123123","totalAmount":"10.63","payType":"PIX"}
+
+#### 2.再组合好的json字符串后，直接拼接上平台给与商户的密钥（假设密钥为：KJF74JF92JF93K960FK59GL7），组成新的字符串：
+
+{"merNo":"123456789","notifyUrl":"http******\*******","outTradeNo":"112233445566778899","randomNo":"123123","totalAmount":"10.63","payType":"PIX"}KJSDLKFJ1029382139038
+
+#### 3.将上方字符串进行MD5加密， 加密后的验签串转换为大写，并将生成好的验签串放入请求参数JSON对象的sign节点中。
+
+{"merNo":"123456789","notifyUrl":"http******\*******","outTradeNo":"112233445566778899","randomNo":"123123","totalAmount":"10.63","payType":"PIX","sign":"E22D02AFD75D0374D3EA8D142FC2B219"}
+
+## 签名注意事项
+
+- 参数名ASCII码从小到大排序（字典序）
+- 先转JSON字符串格式，之后直接连接key的值进行加密
+- 非必传自动，如空值不参与签名,参数名也不必提交
+- 将生成的字符串进行MD5加密，并转换成大写

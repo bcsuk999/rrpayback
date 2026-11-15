@@ -1,19 +1,27 @@
 import crypto from 'node:crypto';
 
 /**
- * Builds the canonical string for signing:
- * non-empty params (except `sign`) sorted by key, joined as k=v&k=v, then &key=SECRET.
+ * Signature rule from apidocs/rrpayapidoc.md (Appendix - Signature Specifications):
+ *  1. drop `sign` and empty values
+ *  2. sort parameter names by ASCII ascending
+ *  3. build a compact JSON string of the sorted params
+ *  4. append the merchant key directly (no separator)
+ *  5. MD5 and uppercase
  */
 export function buildSignString(params, secret) {
-  const keys = Object.keys(params)
+  const sorted = {};
+  Object.keys(params)
     .filter((key) => key !== 'sign')
     .filter((key) => {
       const value = params[key];
       return value !== undefined && value !== null && String(value) !== '';
     })
-    .sort();
+    .sort()
+    .forEach((key) => {
+      sorted[key] = String(params[key]);
+    });
 
-  return `${keys.map((key) => `${key}=${params[key]}`).join('&')}&key=${secret}`;
+  return JSON.stringify(sorted) + secret;
 }
 
 export function createSign(params, secret) {
