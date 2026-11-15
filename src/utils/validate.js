@@ -17,6 +17,7 @@ export const LIMITS = {
   payPhone: 32,
   pay: 32,
   payViewUrl: 128,
+  payParams: 2000,
 };
 
 export function firstMissing(body, fields) {
@@ -45,9 +46,13 @@ export function isValidEmail(value) {
   return value.length <= LIMITS.payEmail && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value);
 }
 
-// +91 followed by 10 digits starting with 6-9, per the doc example.
-export function isValidPhone(value) {
-  return /^\+91[6-9]\d{9}$/.test(value);
+// India coins use the doc's +91 rule (10 digits starting 6-9);
+// other currencies use a generic E.164-style check so PKR/VND/IDR/... still work.
+export function isValidPhone(value, currencyCode) {
+  if (currencyCode === 'INR' || currencyCode === 'INRTWO') {
+    return /^\+91[6-9]\d{9}$/.test(value);
+  }
+  return /^\+\d{8,15}$/.test(value);
 }
 
 export function isValidHttpUrl(value) {

@@ -1,6 +1,7 @@
 import Merchant from '../models/Merchant.js';
 import Payin from '../models/Payin.js';
 import { env } from '../config/env.js';
+import { canonicalCurrency, canonicalPayType } from '../config/paymentTypes.js';
 import { createSign, verifySign } from '../utils/signature.js';
 import { nextPayOrderNo } from '../utils/orderNo.js';
 import asyncHandler from '../utils/asyncHandler.js';
@@ -61,6 +62,12 @@ export const createPayin = asyncHandler(async (req, res) => {
   const tooLong = firstTooLong(body, [...REQUIRED_FIELDS, ...OPTIONAL_FIELDS]);
   if (tooLong) return reply(res, secret, { resultCode: '9999', stateInfo: `Invalid length ${tooLong}!` });
 
+  const currencyCode = canonicalCurrency(body.currencyCode);
+  if (!currencyCode) return reply(res, secret, { resultCode: '9999', stateInfo: 'Invalid currencyCode!' });
+
+  const payType = canonicalPayType(currencyCode, body.payType);
+  if (!payType) return reply(res, secret, { resultCode: '9999', stateInfo: 'Invalid payType!' });
+
   if (!isValidAmount(body.totalAmount)) {
     return reply(res, secret, { resultCode: '9999', stateInfo: 'Invalid totalAmount!' });
   }
@@ -73,7 +80,7 @@ export const createPayin = asyncHandler(async (req, res) => {
   if (!isValidEmail(String(body.payEmail).trim())) {
     return reply(res, secret, { resultCode: '9999', stateInfo: 'Invalid payEmail!' });
   }
-  if (!isValidPhone(String(body.payPhone).trim())) {
+  if (!isValidPhone(String(body.payPhone).trim(), currencyCode)) {
     return reply(res, secret, { resultCode: '9999', stateInfo: 'Invalid payPhone!' });
   }
   if (!isValidPayerIp(String(body.pay).trim())) {
@@ -96,8 +103,8 @@ export const createPayin = asyncHandler(async (req, res) => {
       merchant: merchant._id,
       merNo: merchant.merNo,
       outTradeNo,
-      currencyCode: String(body.currencyCode).trim(),
-      payType: String(body.payType).trim(),
+      currencyCode,
+      payType,
       randomNo: String(body.randomNo).trim(),
       totalAmount,
       notifyUrl: String(body.notifyUrl).trim(),
