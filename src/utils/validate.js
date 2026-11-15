@@ -2,7 +2,8 @@ import net from 'node:net';
 
 // Max lengths from apidocs/rrpayapidoc.md (String(n)).
 export const LIMITS = {
-  merNo: 15,
+  // Doc says String(15); real platform merchant IDs run longer (e.g. RUP261115202954092).
+  merNo: 32,
   currencyCode: 16,
   payType: 16,
   randomNo: 14,

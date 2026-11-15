@@ -15,4 +15,5 @@ export const env = {
   port,
   mongoUri: process.env.MONGODB_URI,
   payUrlBase: (process.env.PAY_URL_BASE ?? `http://localhost:${port}/pay`).replace(/\/+$/, ''),
+  merchantNo: process.env.MERCHANT_NO,
 };

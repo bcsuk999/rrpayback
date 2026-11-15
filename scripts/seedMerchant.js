@@ -15,6 +15,6 @@ const merchant = await Merchant.findOneAndUpdate(
   { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true }
 );
 
-console.log(`Merchant ready: merNo=${merchant.merNo} secret=${merchant.secretKey}`);
+console.log(`Merchant ready: merNo=${merchant.merNo}`);
 
 await mongoose.disconnect();

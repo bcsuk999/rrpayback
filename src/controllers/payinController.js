@@ -137,6 +137,17 @@ export const createPayin = asyncHandler(async (req, res) => {
   });
 });
 
+// Dev-only helper for Swagger UI: computes the sign for an unsigned body.
+export const signPayinRequest = asyncHandler(async (req, res) => {
+  const body = req.body ?? {};
+  if (!body.merNo) return res.status(400).json({ error: 'merNo is required' });
+
+  const merchant = await Merchant.findOne({ merNo: String(body.merNo).trim() });
+  if (!merchant) return res.status(404).json({ error: 'Merchant not found' });
+
+  return res.json({ sign: createSign(body, merchant.secretKey) });
+});
+
 export const getPayPage = asyncHandler(async (req, res) => {
   const payin = await Payin.findOne({ payOrderNo: req.params.payOrderNo }).lean();
   if (!payin) return res.status(404).json({ error: 'Payment order not found' });
