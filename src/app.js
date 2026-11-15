@@ -1,4 +1,5 @@
 import express from 'express';
+import cors from 'cors';
 import mongoose from 'mongoose';
 import payinRouter from './routes/payin.js';
 import payRouter from './routes/pay.js';
@@ -8,6 +9,7 @@ import adminRouter from './routes/admin.js';
 
 const app = express();
 
+app.use(cors());
 app.use(express.json());
 
 app.get('/health', (req, res) => {

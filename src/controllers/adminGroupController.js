@@ -18,6 +18,9 @@ export const updateGroup = asyncHandler(async (req, res) => {
     if (!['active', 'suspended', 'banned'].includes(status)) {
       return res.status(400).json({ success: false, msg: 'Invalid status' });
     }
+    if (!remark || !String(remark).trim()) {
+      return res.status(400).json({ success: false, msg: 'Remark is required when changing status' });
+    }
     group.status = status;
   }
   if (remark !== undefined) group.remark = String(remark);
