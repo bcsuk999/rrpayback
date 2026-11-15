@@ -30,7 +30,7 @@ const REQUIRED_FIELDS = [
   'payName',
   'payEmail',
   'payPhone',
-  'pay',
+  'payIp',
 ];
 
 const OPTIONAL_FIELDS = ['payViewUrl'];
@@ -83,7 +83,7 @@ export const createPayin = asyncHandler(async (req, res) => {
   if (!isValidPhone(String(body.payPhone).trim(), currencyCode)) {
     return reply(res, secret, { resultCode: '9999', stateInfo: 'Invalid payPhone!' });
   }
-  if (!isValidPayerIp(String(body.pay).trim())) {
+  if (!isValidPayerIp(String(body.payIp).trim())) {
     return reply(res, secret, { resultCode: '9999', stateInfo: 'Invalid pay IP!' });
   }
 
@@ -114,7 +114,7 @@ export const createPayin = asyncHandler(async (req, res) => {
       payName: String(body.payName).trim(),
       payEmail: String(body.payEmail).trim(),
       payPhone: String(body.payPhone).trim(),
-      payIp: String(body.pay).trim(),
+      payIp: String(body.payIp).trim(),
       payURL: `${env.payUrlBase}/${payOrderNo}`,
       rawRequest: body,
     });

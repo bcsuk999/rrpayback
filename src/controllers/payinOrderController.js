@@ -56,7 +56,7 @@ function payerIp(req, override) {
 /**
  * POST /payin/order
  * Body: { "amount": "150.00" } plus optional overrides (currencyCode, payType, notifyUrl,
- * payViewUrl, payName, payEmail, payPhone, pay, payCardNo, payBankCode).
+ * payViewUrl, payName, payEmail, payPhone, payIp, payCardNo, payBankCode).
  * Builds the full RRPay /payin/create payload (sign included) and returns RRPay's exact response.
  */
 export const createPayinOrder = asyncHandler(async (req, res) => {
@@ -116,12 +116,12 @@ export const createPayinOrder = asyncHandler(async (req, res) => {
     payName: body.payName ?? DEFAULTS.payName,
     payEmail: body.payEmail ?? DEFAULTS.payEmail,
     payPhone: body.payPhone ?? DEFAULTS.payPhone,
-    pay: payerIp(req, body.pay),
+    payIp: payerIp(req, body.payIp),
   };
 
   if (body.payViewUrl) payload.payViewUrl = body.payViewUrl;
 
-  payload.sign = createSign(payload, env.merchantSecret, ['sign', 'pay']);
+  payload.sign = createSign(payload, env.merchantSecret);
 
   const result = await callRrpay('/payin/create', payload);
 

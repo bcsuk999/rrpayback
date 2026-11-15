@@ -76,7 +76,7 @@ const payinProperties = {
     example: '+917123456789',
     description: 'INR/INRTWO require +91 + 10 digits (6-9 start); other currencies accept +<8-15 digits>',
   },
-  pay: {
+  payIp: {
     type: 'string',
     format: 'ipv4',
     maxLength: 32,
@@ -105,7 +105,7 @@ const payinExample = {
   payName: 'xiaoming',
   payEmail: 'xiaoming@email.com',
   payPhone: '+917123456789',
-  pay: '103.21.244.5',
+  payIp: '103.21.244.5',
   sign: '<paste sign from POST /payin/sign>',
 };
 
@@ -453,7 +453,7 @@ const openApiSpec = {
             example: '+917123456789',
             description: 'INR/INRTWO: +91 + 10 digits starting 6-9. Others: +<8-15 digits>.',
           },
-          pay: {
+          payIp: {
             type: 'string',
             format: 'ipv4',
             maxLength: 32,

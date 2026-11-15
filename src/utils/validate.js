@@ -16,7 +16,7 @@ export const LIMITS = {
   payName: 32,
   payEmail: 32,
   payPhone: 32,
-  pay: 32,
+  payIp: 32,
   payViewUrl: 128,
   payParams: 2000,
 };
