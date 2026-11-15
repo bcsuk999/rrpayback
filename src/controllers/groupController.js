@@ -17,7 +17,7 @@ export const registerGroup = asyncHandler(async (req, res) => {
     // Update name if provided
     if (groupName) group.groupName = groupName;
     await group.save();
-    return res.json({ uid: group.uid, groupId: group.groupId, groupName: group.groupName, status: group.status });
+    return res.json({ _id: group._id, uid: group.uid, groupId: group.groupId, groupName: group.groupName, status: group.status });
   }
 
   // Generate unique uid
@@ -35,7 +35,7 @@ export const registerGroup = asyncHandler(async (req, res) => {
     status: 'active',
   });
 
-  return res.status(201).json({ uid: group.uid, groupId: group.groupId, groupName: group.groupName, status: group.status });
+  return res.status(201).json({ _id: group._id, uid: group.uid, groupId: group.groupId, groupName: group.groupName, status: group.status });
 });
 
 export const getGroup = asyncHandler(async (req, res) => {
@@ -43,5 +43,5 @@ export const getGroup = asyncHandler(async (req, res) => {
   if (!Number.isFinite(gid)) return res.status(400).json({ error: 'invalid groupId' });
   const group = await Group.findOne({ groupId: gid });
   if (!group) return res.status(404).json({ error: 'group not found' });
-  return res.json({ uid: group.uid, groupId: group.groupId, groupName: group.groupName, status: group.status, balance: group.balance?.toString?.() });
+  return res.json({ _id: group._id, uid: group.uid, groupId: group.groupId, groupName: group.groupName, status: group.status, balance: group.balance?.toString?.() });
 });

@@ -10,7 +10,8 @@ export const updateGroup = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { status, remark, exchangeRate, groupName } = req.body ?? {};
 
-  const group = await Group.findById(id);
+  let group = await Group.findById(id).catch(() => null);
+  if (!group && /^-?\d+$/.test(String(id))) group = await Group.findOne({ groupId: Number(id) });
   if (!group) return res.status(404).json({ success: false, msg: 'Group not found' });
 
   if (status !== undefined) {
