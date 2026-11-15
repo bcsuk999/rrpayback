@@ -34,7 +34,7 @@ async function handleOrder(ctx, config) {
     const res = await fetch(`http://localhost:${port}/payin/order`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ amount, groupId: ctx.chat?.id, uid: ctx.groupUid }),
+      body: JSON.stringify({ amount, groupId: (ctx.chat?.type !== 'private' ? ctx.chat?.id : undefined), uid: ctx.groupUid }),
     });
     const data = await res.json().catch(() => ({}));
     if (data.resultCode === '0000') {

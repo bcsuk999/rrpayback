@@ -147,7 +147,15 @@ export const createPayinOrder = asyncHandler(async (req, res) => {
   // Persist a local Payin record on success so webhooks can update it.
   if (result.body && result.body.resultCode === '0000' && result.body.payOrderNo) {
     try {
-      const merchant = await Merchant.findOne({ merNo: env.merchantNo });
+      let merchant = await Merchant.findOne({ merNo: env.merchantNo });
+      if (!merchant && env.merchantNo && env.merchantSecret) {
+        merchant = await Merchant.create({
+          merNo: env.merchantNo,
+          name: env.merchantName || env.merchantNo,
+          secretKey: env.merchantSecret,
+          status: 'active',
+        });
+      }
       if (merchant) {
         await Payin.create({
           payOrderNo: result.body.payOrderNo,
