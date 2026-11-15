@@ -9,14 +9,25 @@ import adminRouter from './routes/admin.js';
 
 const app = express();
 
-app.use(
-  cors({
-    origin: 'https://rrpayadmin.netlify.app',
-    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin'],
-    credentials: false,
-  })
-);
+// CORS — allow the admin frontend origin(s).
+// Additional origins can be granted via the CORS_ORIGIN env var (comma-separated).
+const allowedOrigins = [
+  'https://rrpayadmin.netlify.app',
+  ...String(process.env.CORS_ORIGIN ?? '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+];
+
+const corsOptions = {
+  origin: allowedOrigins, // array -> origin is reflected when it is allow-listed
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With'],
+  credentials: true,
+  maxAge: 86400, // cache successful preflights for 24h
+};
+
+app.use(cors(corsOptions));
 app.use(express.json());
 
 app.get('/health', (req, res) => {
