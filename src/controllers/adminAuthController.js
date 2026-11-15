@@ -22,7 +22,7 @@ export const registerAdmin = asyncHandler(async (req, res) => {
   const hashed = await bcrypt.hash(String(password), SALT_ROUNDS);
   const admin = await Admin.create({
     mobile: String(mobile).trim(),
-    password: hashed,
+    role: 'user',
     role: role === 'admin' ? 'admin' : 'admin', // default admin; allow override only to admin for safety
     status: 'active',
   });
