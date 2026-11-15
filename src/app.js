@@ -9,7 +9,13 @@ import adminRouter from './routes/admin.js';
 
 const app = express();
 
-app.use(cors());
+app.use(
+  cors({
+    origin: '*',
+    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin'],
+  })
+);
 app.use(express.json());
 
 app.get('/health', (req, res) => {
