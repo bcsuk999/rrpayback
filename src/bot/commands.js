@@ -24,14 +24,17 @@ async function getRegisteredGroup(chatId) {
 
 const HELP = (owner) =>
   [
-    'RRPAY Bot',
+    '🤖 RRPAY Bot',
     '',
-    '/balance - show group balance',
-    '/d <amount> - create a payin order (e.g. /d 100.00)',
-    '/help - show available commands',
-    '/status <payOrderNo> - check an order',
+    '👤 /balance - show group balance',
+    '👤 /d <amount> - create a payin order (e.g. /d 100.00)',
+    '👤 /help - show available commands',
+    '👤 /status <payOrderNo> - check an order',
+    owner ? '📢 /reg - register group (owner only)' : '',
+    owner ? '📢 /gmsg <msg> - send a message (owner only)' : '',
+    owner ? '📢 /md - toggle maintenance (owner only)' : '',
   ]
-    .filter(Boolean)
+    .filter((line) => line.length > 0)
     .join('\n');
 
 async function reply(ctx, text) {
