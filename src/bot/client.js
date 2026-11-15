@@ -46,15 +46,41 @@ export async function startBot() {
     lastError = null;
     console.log(`[bot] connected as @${me.username} (owner ${config.ownerId})`);
 
+    const groupMenu = [
+      { command: 'start', description: 'Show bot info and command list' },
+      { command: 'help', description: 'Show available commands' },
+      { command: 'order', description: 'Create a payin order: /order <amount>' },
+      { command: 'status', description: 'Check an order: /status <payOrderNo>' },
+    ];
+    const ownerMenu = [
+      ...groupMenu,
+      { command: 'reg', description: 'Register this group (owner only)' },
+      { command: 'gmsg', description: 'Send a message (owner only)' },
+      { command: 'md', description: 'Toggle maintenance (owner only)' },
+    ];
+
+    try {
+      await bot.api.setMyCommands(groupMenu, { scope: { type: 'all_group_chats' } });
+      console.log('[bot] group command menu set');
+    } catch (err) {
+      console.warn('[bot] setMyCommands (group) failed:', err?.message);
+    }
+
+    try {
+      await bot.api.setMyCommands(ownerMenu, { scope: { type: 'chat', chat_id: config.ownerId } });
+      console.log('[bot] owner command menu set');
+    } catch (err) {
+      console.warn('[bot] setMyCommands (owner) failed:', err?.message);
+    }
+
+    // Default scope (private chats that aren't the owner) — keep minimal.
     try {
       await bot.api.setMyCommands([
         { command: 'start', description: 'Show bot info and command list' },
         { command: 'help', description: 'Show available commands' },
-        { command: 'order', description: 'Create a payin order: /order <amount>' },
-        { command: 'status', description: 'Check an order: /status <payOrderNo>' },
       ]);
     } catch (err) {
-      console.warn('[bot] setMyCommands failed:', err?.message);
+      console.warn('[bot] setMyCommands (default) failed:', err?.message);
     }
 
     return { started: true, reason: 'ok' };
