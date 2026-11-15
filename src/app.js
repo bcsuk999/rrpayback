@@ -4,6 +4,7 @@ import swaggerUi from 'swagger-ui-express';
 import openApiSpec from './docs/openapi.js';
 import payinRouter from './routes/payin.js';
 import payRouter from './routes/pay.js';
+import groupsRouter from './routes/groups.js';
 
 const app = express();
 
@@ -19,6 +20,7 @@ app.get('/health', (req, res) => {
 
 app.use('/payin', payinRouter);
 app.use('/pay', payRouter);
+app.use('/groups', groupsRouter);
 
 app.get('/', (req, res) => res.redirect('/docs'));
 

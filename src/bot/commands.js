@@ -15,7 +15,16 @@ const HELP = (owner) =>
     .filter(Boolean)
     .join('\n');
 
-async function handleOrder(ctx) {
+async function handleOrder(ctx, config) {
+  // Resolve group uid if running inside a registered group.
+  const chat = ctx.chat || {};
+  if (chat.type !== 'private') {
+    try {
+      const port = process.env.PORT || 4000;
+      const r = await fetch(`http://localhost:${port}/groups/${chat.id}`);
+      if (r.ok) { const d = await r.json(); ctx.groupUid = d.uid; }
+    } catch (_) {}
+  }
   const args = (ctx.message?.text || '').trim().split(/\s+/).slice(1);
   const amount = args[0];
   if (!amount) return ctx.reply('Usage: /order <amount> (e.g. /order 100.00)');
@@ -25,7 +34,7 @@ async function handleOrder(ctx) {
     const res = await fetch(`http://localhost:${port}/payin/order`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ amount }),
+      body: JSON.stringify({ amount, groupId: ctx.chat?.id, uid: ctx.groupUid }),
     });
     const data = await res.json().catch(() => ({}));
     if (data.resultCode === '0000') {
@@ -82,7 +91,7 @@ export function register(bot, config) {
     if (chat.type === 'private' && !isOwner(from, config)) {
       return ctx.reply('This bot is for the owner only.');
     }
-    return handleOrder(ctx);
+    return handleOrder(ctx, config);
   });
 
   bot.command('status', (ctx) => {
@@ -94,14 +103,31 @@ export function register(bot, config) {
     return handleStatus(ctx);
   });
 
-  bot.command('reg', (ctx) => {
+  bot.command('reg', async (ctx) => {
     const from = ctx.from || {};
     if (!isOwner(from, config)) return ctx.reply('Only the owner can register a group.');
     const chat = ctx.chat || {};
-    return ctx.reply(
-      `Group registered.\nChat ID: <code>${chat.id}</code>\nTitle: ${chat.title || '-'}`,
-      { parse_mode: 'HTML' }
-    );
+    if (chat.type === 'private') return ctx.reply('Run /reg inside the group you want to register.');
+
+    try {
+      const port = process.env.PORT || 4000;
+      // Generate a 5-digit uid
+      let uid = String(Math.floor(10000 + Math.random() * 90000));
+      // Persist via a small helper endpoint? We'll call a local API.
+      const res = await fetch(`http://localhost:${port}/groups/register`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ groupId: chat.id, groupName: chat.title || '', uid }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return ctx.reply(`❌ ${data.error || 'registration failed'}`);
+      return ctx.reply(
+        `✅ Group registered.\nUID: <code>${data.uid}</code>\nChat ID: <code>${chat.id}</code>\nTitle: ${chat.title || '-'}`,
+        { parse_mode: 'HTML' }
+      );
+    } catch (err) {
+      return ctx.reply(`❌ Error: ${err.message}`);
+    }
   });
 
   bot.command('gmsg', (ctx) => {

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { env } from '../config/env.js';
 import { createPayin, signPayinRequest } from '../controllers/payinController.js';
 import { createPayinOrder } from '../controllers/payinOrderController.js';
+import { handlePayinNotify } from '../controllers/payinNotifyController.js';
 
 const router = Router();
 
@@ -11,6 +12,9 @@ router.post('/create', createPayin);
 // POST {DOMAIN_URL}/payin/order — amount-only shortcut: builds and signs the whole
 // RRPay request, forwards it to {RRPAY_BASE_URL}/payin/create, and mirrors the reply.
 router.post('/order', createPayinOrder);
+
+// POST {DOMAIN_URL}/payin/notify — RRPay async payment result callback.
+router.post('/notify', handlePayinNotify);
 
 // Dev-only sign helper used by Swagger UI. Never mounted in production.
 if (env.nodeEnv !== 'production') {

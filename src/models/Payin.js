@@ -23,6 +23,11 @@ const payinSchema = new mongoose.Schema(
     payIp: { type: String, required: true },
 
     payURL: { type: String, required: true },
+
+  // Optional link to a registered Telegram group (for bot-driven deposits).
+  group: { type: mongoose.Schema.Types.ObjectId, ref: 'Group', index: true },
+  groupId: { type: Number, index: true },
+  uid: { type: String, index: true },
     // Reserved for channels that return a native payment string.
     payParams: { type: String },
 

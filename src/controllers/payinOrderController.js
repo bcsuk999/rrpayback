@@ -6,6 +6,9 @@ import { CURRENCIES, canonicalCurrency, canonicalPayType } from '../config/payme
 import { createSign } from '../utils/signature.js';
 import { normalizeAmount, isValidAmount } from '../utils/validate.js';
 import { callRrpay } from '../services/rrpayClient.js';
+import Payin from '../models/Payin.js';
+import Merchant from '../models/Merchant.js';
+import Group from '../models/Group.js';
 import asyncHandler from '../utils/asyncHandler.js';
 
 const DEFAULTS = {
@@ -121,6 +124,9 @@ export const createPayinOrder = asyncHandler(async (req, res) => {
 
   if (body.payViewUrl) payload.payViewUrl = body.payViewUrl;
 
+  const groupId = body.groupId ? Number(body.groupId) : null;
+  const uid = body.uid ? String(body.uid) : null;
+
   payload.sign = createSign(payload, env.merchantSecret);
 
   const result = await callRrpay('/payin/create', payload);
@@ -136,6 +142,41 @@ export const createPayinOrder = asyncHandler(async (req, res) => {
       request: payload,
       ...(env.nodeEnv !== 'production' ? { stack: result.error.stack } : {}),
     });
+  }
+
+  // Persist a local Payin record on success so webhooks can update it.
+  if (result.body && result.body.resultCode === '0000' && result.body.payOrderNo) {
+    try {
+      const merchant = await Merchant.findOne({ merNo: env.merchantNo });
+      if (merchant) {
+        await Payin.create({
+          payOrderNo: result.body.payOrderNo,
+          merchant: merchant._id,
+          merNo: env.merchantNo,
+          outTradeNo: payload.outTradeNo,
+          currencyCode: payload.currencyCode,
+          payType: payload.payType,
+          randomNo: payload.randomNo,
+          totalAmount: payload.totalAmount,
+          notifyUrl: payload.notifyUrl,
+          payCardNo: payload.payCardNo,
+          payBankCode: payload.payBankCode,
+          payName: payload.payName,
+          payEmail: payload.payEmail,
+          payPhone: payload.payPhone,
+          payIp: payload.payIp,
+          payURL: result.body.payURL,
+          payViewUrl: payload.payViewUrl,
+          status: 'pending',
+          group: groupId ? (await Group.findOne({ groupId }))?._id : undefined,
+          groupId: groupId ?? undefined,
+          uid: uid ?? undefined,
+          rawRequest: payload,
+        });
+      }
+    } catch (err) {
+      console.error('[payin/order] failed to persist Payin:', err?.message);
+    }
   }
 
   // Mirror RRPay exactly: same status code, same content type, same body bytes.
