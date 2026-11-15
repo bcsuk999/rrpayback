@@ -115,7 +115,7 @@ const successExample = {
   merNo: exampleMerchantNo,
   outTradeNo: 'RRPAY-TEST-1001',
   totalAmount: '150.00',
-  payURL: 'http://localhost:4000/pay/PI20261115000001',
+  payURL: 'https://api.rrpay.ai/pay/PI20261115000001',
   payOrderNo: 'PI20261115000001',
   sign: '7C1E2F...UPPERCASE_MD5',
 };
@@ -135,7 +135,10 @@ const openApiSpec = {
       '**Manual flow:** call `POST /payin/sign` with the request body (no sign), copy the `sign` into ' +
       '`POST /payin/create`, then execute.',
   },
-  servers: [{ url: `http://localhost:${env.port}`, description: 'Local server' }],
+  servers: [
+    { url: 'https://rrpayback.onrender.com', description: 'Production (Render)' },
+    { url: `http://localhost:${env.port}`, description: 'Local server' },
+  ],
   tags: [
     { name: 'Payin', description: 'Deposit orders' },
     { name: 'Payin (dev)', description: 'Development helpers' },
