@@ -15,25 +15,10 @@ const HELP = (owner) =>
     .filter(Boolean)
     .join('\n');
 
-async function reply(client, chatId, text) {
-  try {
-    await client.sendMessage(chatId, text, { parse_mode: 'HTML' });
-  } catch (err) {
-    console.error('[bot] send failed:', err?.message);
-  }
-}
-
-function parseCommand(text) {
-  if (typeof text !== 'string' || !text.startsWith('/')) return null;
-  const [raw, ...args] = text.trim().split(/\s+/);
-  const command = raw.toLowerCase().split('@')[0];
-  return { command, args };
-}
-
-async function handleOrder(ctx, client) {
-  const { chat, args } = ctx;
+async function handleOrder(ctx) {
+  const args = (ctx.message?.text || '').trim().split(/\s+/).slice(1);
   const amount = args[0];
-  if (!amount) return reply(client, chat.id, 'Usage: /order <amount> (e.g. /order 100.00)');
+  if (!amount) return ctx.reply('Usage: /order <amount> (e.g. /order 100.00)');
 
   try {
     const port = process.env.PORT || 4000;
@@ -50,27 +35,23 @@ async function handleOrder(ctx, client) {
         `Amount: ${data.totalAmount}`,
         `Pay URL: ${data.payURL}`,
       ];
-      return reply(client, chat.id, lines.join('\n'));
+      return ctx.reply(lines.join('\n'), { parse_mode: 'HTML' });
     }
-    return reply(
-      client,
-      chat.id,
-      `❌ RRPay rejected: ${data.stateInfo || data.error || 'unknown'}`
-    );
+    return ctx.reply(`❌ RRPay rejected: ${data.stateInfo || data.error || 'unknown'}`);
   } catch (err) {
-    return reply(client, chat.id, `❌ Error: ${err.message}`);
+    return ctx.reply(`❌ Error: ${err.message}`);
   }
 }
 
-async function handleStatus(ctx, client) {
-  const { chat, args } = ctx;
+async function handleStatus(ctx) {
+  const args = (ctx.message?.text || '').trim().split(/\s+/).slice(1);
   const orderNo = args[0];
-  if (!orderNo) return reply(client, chat.id, 'Usage: /status <payOrderNo>');
+  if (!orderNo) return ctx.reply('Usage: /status <payOrderNo>');
 
   try {
     const port = process.env.PORT || 4000;
     const res = await fetch(`http://localhost:${port}/pay/${orderNo}`);
-    if (!res.ok) return reply(client, chat.id, `Order not found: ${orderNo}`);
+    if (!res.ok) return ctx.reply(`Order not found: ${orderNo}`);
     const data = await res.json();
     const lines = [
       `Order: <code>${data.payOrderNo}</code>`,
@@ -78,67 +59,75 @@ async function handleStatus(ctx, client) {
       `Amount: ${data.totalAmount} ${data.currencyCode || ''}`,
       `Type: ${data.payType || ''}`,
     ];
-    return reply(client, chat.id, lines.join('\n'));
+    return ctx.reply(lines.join('\n'), { parse_mode: 'HTML' });
   } catch (err) {
-    return reply(client, chat.id, `❌ Error: ${err.message}`);
+    return ctx.reply(`❌ Error: ${err.message}`);
   }
 }
 
-export async function handleMessage(msg, client, config) {
-  const chat = msg.chat || {};
-  console.log('[bot] incoming msg:', 'chat=', chat.id, 'type=', chat.type, 'text=', JSON.stringify(msg.text));
-  const from = msg.from || {};
-  const text = msg.text || '';
-  const parsed = parseCommand(text);
+export function register(bot, config) {
+  bot.command('start', (ctx) => {
+    const owner = isOwner(ctx.from, config);
+    return ctx.reply(HELP(owner));
+  });
 
-  const owner = isOwner(from, config);
+  bot.command('help', (ctx) => {
+    const owner = isOwner(ctx.from, config);
+    return ctx.reply(HELP(owner));
+  });
 
-  // Private chats: owner only.
-  if (chat.type === 'private' && !owner) {
-    return reply(client, chat.id, 'This bot is for the owner only.');
-  }
+  bot.command('order', (ctx) => {
+    const chat = ctx.chat || {};
+    const from = ctx.from || {};
+    if (chat.type === 'private' && !isOwner(from, config)) {
+      return ctx.reply('This bot is for the owner only.');
+    }
+    return handleOrder(ctx);
+  });
 
-  if (!parsed) {
-    if (chat.type === 'private') return reply(client, chat.id, HELP(owner));
-    return;
-  }
+  bot.command('status', (ctx) => {
+    const chat = ctx.chat || {};
+    const from = ctx.from || {};
+    if (chat.type === 'private' && !isOwner(from, config)) {
+      return ctx.reply('This bot is for the owner only.');
+    }
+    return handleStatus(ctx);
+  });
 
-  const { command, args } = parsed;
-  const ctx = { chat, from, args, command, owner };
-
-  switch (command) {
-    case '/start':
-    case '/help':
-      return reply(client, chat.id, HELP(owner));
-    case '/order':
-      return handleOrder(ctx, client);
-    case '/status':
-      return handleStatus(ctx, client);
-    case '/reg':
-      if (!owner) return reply(client, chat.id, 'Only the owner can register a group.');
-      return reply(
-        client,
-        chat.id,
-        `Group registered.\nChat ID: <code>${chat.id}</code>\nTitle: ${chat.title || '-'}`
-      );
-    case '/gmsg':
-      if (!owner) return reply(client, chat.id, 'Only the owner can use /gmsg.');
-      const msgText = args.join(' ').trim();
-      if (!msgText) return reply(client, chat.id, 'Usage: /gmsg <message>');
-      return reply(client, chat.id, `📢 ${msgText}`);
-    case '/md':
-      if (!owner) return reply(client, chat.id, 'Only the owner can use /md.');
-      return reply(client, chat.id, 'Maintenance toggled (owner only).');
-    default:
-      return reply(client, chat.id, `Unknown command. Try /help`);
-  }
-}
-
-export function register(client, config) {
-  client.on('message', (msg) => {
-    handleMessage(msg, client, config).catch((err) =>
-      console.error('[bot] unhandled message error:', err?.message)
+  bot.command('reg', (ctx) => {
+    const from = ctx.from || {};
+    if (!isOwner(from, config)) return ctx.reply('Only the owner can register a group.');
+    const chat = ctx.chat || {};
+    return ctx.reply(
+      `Group registered.\nChat ID: <code>${chat.id}</code>\nTitle: ${chat.title || '-'}`,
+      { parse_mode: 'HTML' }
     );
   });
+
+  bot.command('gmsg', (ctx) => {
+    const from = ctx.from || {};
+    if (!isOwner(from, config)) return ctx.reply('Only the owner can use /gmsg.');
+    const text = (ctx.message?.text || '').trim().split(/\s+/).slice(1).join(' ');
+    if (!text) return ctx.reply('Usage: /gmsg <message>');
+    return ctx.reply(`📢 ${text}`);
+  });
+
+  bot.command('md', (ctx) => {
+    const from = ctx.from || {};
+    if (!isOwner(from, config)) return ctx.reply('Only the owner can use /md.');
+    return ctx.reply('Maintenance toggled (owner only).');
+  });
+
+  // Fallback for non-command messages in private chats.
+  bot.on('message', (ctx) => {
+    const chat = ctx.chat || {};
+    const from = ctx.from || {};
+    const text = ctx.message?.text || '';
+    if (chat.type === 'private' && !text.startsWith('/')) {
+      if (!isOwner(from, config)) return ctx.reply('This bot is for the owner only.');
+      return ctx.reply(HELP(true));
+    }
+  });
+
   return true;
 }

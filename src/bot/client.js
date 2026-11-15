@@ -1,16 +1,17 @@
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
-const TelegramBot = require('node-telegram-bot-api');
+const { Bot } = require('node-telegram-bot-api');
+
 import { loadConfig, validateConfig } from './config.js';
 import { register } from './commands.js';
 
-let client = null;
+let bot = null;
 let config = null;
 let running = false;
 let lastError = null;
 
 export function getClient() {
-  return client;
+  return bot;
 }
 
 export function getConfig() {
@@ -36,26 +37,17 @@ export async function startBot() {
   }
 
   try {
-    client = new TelegramBot(config.token, { polling: true });
+    bot = new Bot(config.token);
+    register(bot, config);
 
-    client.on('polling_error', (err) => {
-      console.error('[bot] polling_error:', err?.message || err);
-      console.error('[bot] polling error:', err?.message || err);
-    });
-    client.on('error', (err) => {
-      console.error('[bot] client error:', err?.message || err);
-    });
-
-    register(client, config);
-    console.log('[bot] handlers registered');
-
-    const me = await client.getMe();
+    bot.startPolling().catch((err) => console.error('[bot] polling loop error:', err?.message));
+    const me = await bot.api.getMe();
     running = true;
     lastError = null;
     console.log(`[bot] connected as @${me.username} (owner ${config.ownerId})`);
 
     try {
-      await client.setMyCommands([
+      await bot.api.setMyCommands([
         { command: 'start', description: 'Show bot info and command list' },
         { command: 'help', description: 'Show available commands' },
         { command: 'order', description: 'Create a payin order: /order <amount>' },
@@ -70,36 +62,36 @@ export async function startBot() {
     lastError = err?.message || String(err);
     running = false;
     try {
-      await client?.stopPolling();
+      await bot?.stop();
     } catch (_) {
       // already stopped
     }
-    client = null;
+    bot = null;
     console.error('[bot] failed to start:', lastError);
     return { started: false, reason: 'start_failed', error: lastError };
   }
 }
 
 export async function stopBot() {
-  if (!client) return { stopped: false };
+  if (!bot) return { stopped: false };
   try {
-    await client.stopPolling();
+    await bot.stop();
   } catch (err) {
     console.warn('[bot] error during shutdown:', err?.message);
   }
   running = false;
-  client = null;
+  bot = null;
   console.log('[bot] stopped');
   return { stopped: true };
 }
 
 export function processWebhookUpdate(update) {
-  if (!client) return false;
+  if (!bot) return false;
   try {
-    client.processUpdate(update);
+    bot.handleUpdate(update);
     return true;
   } catch (err) {
-    console.error('[bot] failed to process webhook update:', err?.message);
+    console.error('[bot] failed to process update:', err?.message);
     return false;
   }
 }

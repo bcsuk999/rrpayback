@@ -9,7 +9,6 @@ await connectDB();
 
 const server = app.listen(env.port, () => {
   console.log(`[server] listening on http://localhost:${env.port} (${env.nodeEnv})`);
-  // Bot must never take the HTTP server down: start it after listening.
   startBot().catch((err) => console.error('[bot] start failed:', err?.message));
 });
 
