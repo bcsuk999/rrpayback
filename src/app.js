@@ -11,9 +11,10 @@ const app = express();
 
 app.use(
   cors({
-    origin: '*',
+    origin: 'https://rrpayadmin.netlify.app',
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin'],
+    credentials: false,
   })
 );
 app.use(express.json());
