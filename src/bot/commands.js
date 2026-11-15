@@ -1,5 +1,16 @@
 import { isOwner } from './config.js';
 
+async function getRegisteredGroup(chatId) {
+  try {
+    const port = process.env.PORT || 4000;
+    const r = await fetch(`http://localhost:${port}/groups/${chatId}`);
+    if (!r.ok) return null;
+    return await r.json();
+  } catch (_) {
+    return null;
+  }
+}
+
 const HELP = (owner) =>
   [
     'RRPAY Bot',
@@ -85,20 +96,30 @@ export function register(bot, config) {
     return ctx.reply(HELP(owner));
   });
 
-  bot.command('order', (ctx) => {
+  bot.command('order', async (ctx) => {
     const chat = ctx.chat || {};
     const from = ctx.from || {};
     if (chat.type === 'private' && !isOwner(from, config)) {
       return ctx.reply('This bot is for the owner only.');
     }
+    if (chat.type !== 'private') {
+      const group = await getRegisteredGroup(chat.id);
+      if (!group) return ctx.reply('This group is not registered. Owner must run /reg first.');
+      if (group.status && group.status !== 'active') return ctx.reply(`Group is ${group.status}. Contact support.`);
+      ctx.groupUid = group.uid;
+    }
     return handleOrder(ctx, config);
   });
 
-  bot.command('status', (ctx) => {
+  bot.command('status', async (ctx) => {
     const chat = ctx.chat || {};
     const from = ctx.from || {};
     if (chat.type === 'private' && !isOwner(from, config)) {
       return ctx.reply('This bot is for the owner only.');
+    }
+    if (chat.type !== 'private') {
+      const group = await getRegisteredGroup(chat.id);
+      if (!group) return ctx.reply('This group is not registered. Owner must run /reg first.');
     }
     return handleStatus(ctx);
   });
