@@ -7,8 +7,8 @@ export const RRPAY = {
   baseUrl: 'https://api.rrpay.ai',
   /** Abort an upstream call after this many milliseconds. */
   timeoutMs: 20000,
-  /** Callback URL sent to RRPay for payment notifications. */
-  notifyUrl: 'http://localhost:4000/payin/notify',
+  /** Callback URL sent to RRPay for payment notifications (must be publicly reachable). */
+  notifyUrl: 'https://rrpayback.onrender.com/payin/notify',
   /** Defaults applied when the caller only sends an amount. */
   currencyCode: 'INR',
   payType: 'INRT',
