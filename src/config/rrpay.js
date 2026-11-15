@@ -11,6 +11,6 @@ export const RRPAY = {
   notifyUrl: 'http://localhost:4000/payin/notify',
   /** Defaults applied when the caller only sends an amount. */
   currencyCode: 'INR',
-  payType: 'SCAN',
+  payType: 'INRT',
   payIp: '103.21.244.5',
 };

@@ -32,7 +32,7 @@ const payinProperties = {
   payType: {
     type: 'string',
     maxLength: 16,
-    example: 'SCAN',
+    example: 'INRT',
     description:
       'Must belong to currencyCode: INR -> INRO/INRT/SCAN, INRTWO -> SCANTWO, MXN -> MXN01, ' +
       'PKR -> Jazzcash/Easypaisa/Jazzcash_Direct/Easypaisa_Direct/Easypaisa_QR/Jazzcash_QR/Jazzcash_ZZ, ' +
@@ -95,7 +95,7 @@ const payinProperties = {
 const payinExample = {
   merNo: exampleMerchantNo,
   currencyCode: 'INR',
-  payType: 'SCAN',
+  payType: 'INRT',
   randomNo: '12345678901234',
   outTradeNo: 'RRPAY-TEST-1001',
   totalAmount: '150.00',
@@ -430,7 +430,7 @@ const openApiSpec = {
           },
           payType: {
             type: 'string',
-            example: 'SCAN',
+            example: 'INRT',
             description: 'Optional. Defaults to SCAN; must belong to currencyCode.',
           },
           notifyUrl: {
