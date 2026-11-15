@@ -98,16 +98,13 @@ export function register(bot, config) {
 
   bot.command('d', async (ctx) => {
     const chat = ctx.chat || {};
-    const from = ctx.from || {};
-    if (chat.type === 'private' && !isOwner(from, config)) {
-      return ctx.reply('This bot is for the owner only.');
+    if (chat.type === 'private') {
+      return ctx.reply('Run /d inside a registered group. Deposits belong to a group.');
     }
-    if (chat.type !== 'private') {
-      const group = await getRegisteredGroup(chat.id);
-      if (!group) return ctx.reply('This group is not registered. Owner must run /reg first.');
-      if (group.status && group.status !== 'active') return ctx.reply(`Group is ${group.status}. Contact support.`);
-      ctx.groupUid = group.uid;
-    }
+    const group = await getRegisteredGroup(chat.id);
+    if (!group) return ctx.reply('This group is not registered. Owner must run /reg first.');
+    if (group.status && group.status !== 'active') return ctx.reply(`Group is ${group.status}. Contact support.`);
+    ctx.groupUid = group.uid;
     return handleOrder(ctx, config);
   });
 

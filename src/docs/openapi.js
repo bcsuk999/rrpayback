@@ -144,6 +144,8 @@ const openApiSpec = {
     { name: 'Payin (dev)', description: 'Development helpers' },
     { name: 'Payment page', description: 'Hosted pay URL target' },
     { name: 'System' },
+    { name: 'Admin', description: 'Admin authentication and group management' },
+    { name: 'Groups', description: 'Group registration and lookup' },
   ],
   paths: {
     '/payin/create': {
@@ -398,8 +400,125 @@ const openApiSpec = {
         },
       },
     },
+    '/admin/auth/register': {
+      post: {
+        tags: ['Admin'],
+        summary: 'Register an admin (mobile + password)',
+        description: 'Creates an admin account. No JWT is returned; use /admin/auth/login to obtain a token. Role defaults to admin.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/AdminRegisterRequest' },
+              example: { mobile: '9999999999', password: 'secret123' },
+            },
+          },
+        },
+        responses: {
+          201: { description: 'Registered', content: { 'application/json': { schema: { $ref: '#/components/schemas/AdminAuthResponse' } } } },
+          400: { description: 'Validation error' },
+          409: { description: 'Mobile already registered' },
+        },
+      },
+    },
+    '/admin/auth/login': {
+      post: {
+        tags: ['Admin'],
+        summary: 'Admin login (JWT issued only for admin role)',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/AdminLoginRequest' },
+              example: { mobile: '9999999999', password: 'secret123' },
+            },
+          },
+        },
+        responses: {
+          200: { description: 'Login successful, returns JWT', content: { 'application/json': { schema: { $ref: '#/components/schemas/AdminLoginResponse' } } } },
+          400: { description: 'Invalid credentials' },
+          403: { description: 'Not an admin or disabled' },
+          404: { description: 'Admin not found' },
+        },
+      },
+    },
+    '/admin/groups': {
+      get: {
+        tags: ['Admin'],
+        summary: 'List groups (paginated, filterable)',
+        description: 'Query params: page, limit, uid, groupId, status, search.',
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: 'page', in: 'query', schema: { type: 'integer', default: 1 } },
+          { name: 'limit', in: 'query', schema: { type: 'integer', default: 20 } },
+          { name: 'uid', in: 'query', schema: { type: 'string' } },
+          { name: 'groupId', in: 'query', schema: { type: 'integer' } },
+          { name: 'status', in: 'query', schema: { type: 'string', enum: ['active', 'suspended', 'banned'] } },
+          { name: 'search', in: 'query', schema: { type: 'string' } },
+        ],
+        responses: {
+          200: { description: 'Paginated group list', content: { 'application/json': { schema: { $ref: '#/components/schemas/GroupListResponse' } } } },
+          401: { description: 'Unauthorized' },
+          403: { description: 'Forbidden' },
+        },
+      },
+    },
+    '/admin/groups/{id}': {
+      patch: {
+        tags: ['Admin'],
+        summary: 'Update a group (status, remark, exchangeRate, groupName)',
+        description: 'id can be the Mongo _id, uid, or groupId.',
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/GroupUpdateRequest' },
+              example: { status: 'suspended', remark: 'spam', exchangeRate: 85 },
+            },
+          },
+        },
+        responses: {
+          200: { description: 'Updated' },
+          401: { description: 'Unauthorized' },
+          403: { description: 'Forbidden' },
+          404: { description: 'Group not found' },
+        },
+      },
+    },
+    '/groups/{id}': {
+      get: {
+        tags: ['Groups'],
+        summary: 'Get a group by _id, uid, or groupId',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: {
+          200: { description: 'Group found' },
+          404: { description: 'Group not found' },
+        },
+      },
+    },
+    '/groups/register': {
+      post: {
+        tags: ['Groups'],
+        summary: 'Register a group',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/GroupRegisterRequest' },
+              example: { groupId: -1001234567890, groupName: 'My Group' },
+            },
+          },
+        },
+        responses: { 201: { description: 'Registered' }, 400: { description: 'Bad request' } },
+      },
+    },
   },
   components: {
+    securitySchemes: {
+      bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
+    },
     schemas: {
       PayinCreateRequest: {
         type: 'object',
@@ -489,6 +608,99 @@ const openApiSpec = {
             additionalProperties: true,
           },
           stack: { type: 'string', description: 'Only outside production' },
+        },
+      },
+      AdminRegisterRequest: {
+        type: 'object',
+        required: ['mobile', 'password'],
+        properties: {
+          mobile: { type: 'string', example: '9999999999' },
+          password: { type: 'string', minLength: 6, example: 'secret123' },
+        },
+      },
+      AdminLoginRequest: {
+        type: 'object',
+        required: ['mobile', 'password'],
+        properties: {
+          mobile: { type: 'string', example: '9999999999' },
+          password: { type: 'string', example: 'secret123' },
+        },
+      },
+      AdminAuthResponse: {
+        type: 'object',
+        properties: {
+          success: { type: 'boolean' },
+          msg: { type: 'string' },
+          admin: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              mobile: { type: 'string' },
+              role: { type: 'string', enum: ['admin', 'user'] },
+              status: { type: 'string', enum: ['active', 'disabled'] },
+            },
+          },
+        },
+      },
+      AdminLoginResponse: {
+        type: 'object',
+        properties: {
+          success: { type: 'boolean' },
+          msg: { type: 'string' },
+          token: { type: 'string', description: 'JWT, valid for 7d' },
+          admin: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              mobile: { type: 'string' },
+              role: { type: 'string' },
+              status: { type: 'string' },
+            },
+          },
+        },
+      },
+      GroupRegisterRequest: {
+        type: 'object',
+        required: ['groupId'],
+        properties: {
+          groupId: { type: 'integer', example: -1001234567890 },
+          groupName: { type: 'string', example: 'My Group' },
+          uid: { type: 'string', description: 'Optional 5-digit uid; auto-generated if omitted' },
+        },
+      },
+      GroupUpdateRequest: {
+        type: 'object',
+        properties: {
+          status: { type: 'string', enum: ['active', 'suspended', 'banned'] },
+          remark: { type: 'string' },
+          groupName: { type: 'string' },
+          exchangeRate: { type: 'number', example: 85 },
+        },
+      },
+      GroupListResponse: {
+        type: 'object',
+        properties: {
+          success: { type: 'boolean' },
+          page: { type: 'integer' },
+          limit: { type: 'integer' },
+          total: { type: 'integer' },
+          totalPages: { type: 'integer' },
+          groups: { type: 'array', items: { $ref: '#/components/schemas/Group' } },
+        },
+      },
+      Group: {
+        type: 'object',
+        properties: {
+          _id: { type: 'string' },
+          uid: { type: 'string', description: '5-digit group uid' },
+          groupId: { type: 'integer', description: 'Telegram chat id' },
+          groupName: { type: 'string' },
+          status: { type: 'string', enum: ['active', 'suspended', 'banned'] },
+          remark: { type: 'string' },
+          exchangeRate: { type: 'number' },
+          balance: { type: 'string' },
+          createdAt: { type: 'string', format: 'date-time' },
+          updatedAt: { type: 'string', format: 'date-time' },
         },
       },
       PayinCreateResponse: {
