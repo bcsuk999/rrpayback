@@ -39,6 +39,7 @@ export async function startBot() {
     client = new TelegramBot(config.token, { polling: true });
 
     client.on('polling_error', (err) => {
+      console.error('[bot] polling_error:', err?.message || err);
       console.error('[bot] polling error:', err?.message || err);
     });
     client.on('error', (err) => {
@@ -46,6 +47,7 @@ export async function startBot() {
     });
 
     register(client, config);
+    console.log('[bot] handlers registered');
 
     const me = await client.getMe();
     running = true;

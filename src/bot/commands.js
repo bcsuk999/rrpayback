@@ -86,6 +86,7 @@ async function handleStatus(ctx, client) {
 
 export async function handleMessage(msg, client, config) {
   const chat = msg.chat || {};
+  console.log('[bot] incoming msg:', 'chat=', chat.id, 'type=', chat.type, 'text=', JSON.stringify(msg.text));
   const from = msg.from || {};
   const text = msg.text || '';
   const parsed = parseCommand(text);
