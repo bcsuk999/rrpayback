@@ -22,20 +22,28 @@ async function getRegisteredGroup(chatId) {
   }
 }
 
-const HELP = (owner) =>
-  [
-    '🤖 RRPAY Bot',
-    '',
-    '👤 /balance - show group balance',
-    '👤 /d <amount> - create a payin order (e.g. /d 100.00)',
-    '👤 /help - show available commands',
-    '👤 /status <payOrderNo> - check an order',
-    owner ? '📢 /reg - register group (owner only)' : '',
-    owner ? '📢 /gmsg <msg> - send a message (owner only)' : '',
-    owner ? '📢 /md - toggle maintenance (owner only)' : '',
-  ]
-    .filter((line) => line.length > 0)
-    .join('\n');
+const GROUP_LINES = [
+  '/balance - Check this group balance',
+  '/id      - Show this group ID and UID',
+  '/d <amount> - Create a deposit',
+  '/how     - How to create a deposit and use the bot',
+  '/status <order id> - Check a deposit status',
+  '/daily   - Deposit success rate (10m / 30m / 1h / today)',
+];
+
+const REG_LINE = '/reg     - Register a group (run it inside the group)';
+const INFO_LINE = '/info <message> - Notify all active registered groups';
+const PL_LINE = '/pl <t|y|w|m|DD/MM/YY> <cost> - Group profit/loss report';
+const MD_LINE = '/md, /me - Toggle maintenance mode (owner only)';
+
+function helpText({ isOwner = false } = {}) {
+  const lines = ['Commands:'];
+  if (isOwner) lines.push(REG_LINE, INFO_LINE, PL_LINE, MD_LINE);
+  lines.push(...GROUP_LINES);
+  return lines.join('\n');
+}
+
+const HELP = helpText();
 
 async function reply(ctx, text) {
   try {
