@@ -121,7 +121,7 @@ export const createPayinOrder = asyncHandler(async (req, res) => {
 
   if (body.payViewUrl) payload.payViewUrl = body.payViewUrl;
 
-  payload.sign = createSign(payload, env.merchantSecret);
+  payload.sign = createSign(payload, env.merchantSecret, ['sign', 'pay']);
 
   const result = await callRrpay('/payin/create', payload);
 
