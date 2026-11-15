@@ -47,9 +47,9 @@ export async function startBot() {
     console.log(`[bot] connected as @${me.username} (owner ${config.ownerId})`);
 
     const groupMenu = [
-      { command: 'start', description: 'Show bot info and command list' },
-      { command: 'help', description: 'Show available commands' },
+      { command: 'balance', description: 'Show group balance' },
       { command: 'd', description: 'Create a payin order: /d <amount>' },
+      { command: 'help', description: 'Show available commands' },
       { command: 'status', description: 'Check an order: /status <payOrderNo>' },
     ];
     const ownerMenu = [
