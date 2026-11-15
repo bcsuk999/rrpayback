@@ -129,7 +129,10 @@ const openApiSpec = {
       'Merchant-facing deposit (payin) API.\n\n' +
       '**Signing rule:** drop `sign` and empty values, sort keys by ASCII, build a compact JSON string, ' +
       'append the merchant key directly, then MD5 and uppercase.\n\n' +
-      '**Testing:** call `POST /payin/sign` with the request body (no sign), copy the `sign` into ' +
+      '**Quick start:** `POST /payin/order` with only `{ "amount": "150.00" }`. The server generates ' +
+      '`randomNo`, `outTradeNo` and `sign`, fills the remaining fields, calls RRPay and returns ' +
+      "RRPay's exact response (same status code and body).\n\n" +
+      '**Manual flow:** call `POST /payin/sign` with the request body (no sign), copy the `sign` into ' +
       '`POST /payin/create`, then execute.',
   },
   servers: [{ url: `http://localhost:${env.port}`, description: 'Local server' }],
@@ -184,6 +187,111 @@ const openApiSpec = {
                     summary: 'Missing parameter',
                     value: { resultCode: '9999', stateInfo: 'Missing parameters totalAmount!' },
                   },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/payin/order': {
+      post: {
+        tags: ['Payin'],
+        summary: 'Create a deposit order from an amount only',
+        description:
+          'Provide just `amount`. The server generates `randomNo` and `outTradeNo`, applies the ' +
+          "configured defaults, signs the request, forwards it to RRPay's `/payin/create`, and " +
+          'mirrors RRPay\'s response byte-for-byte (status code and body). Optional fields below ' +
+          'override the defaults.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/PayinOrderRequest' },
+              example: { amount: '150.00' },
+              examples: {
+                amountOnly: { summary: 'Amount only (recommended)', value: { amount: '150.00' } },
+                withOverrides: {
+                  summary: 'With optional overrides',
+                  value: {
+                    amount: '150.00',
+                    currencyCode: 'INR',
+                    payType: 'SCAN',
+                    payName: 'xiaoming',
+                    payEmail: 'xiaoming@email.com',
+                    payPhone: '+917123456789',
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description:
+              "RRPay's exact response. `resultCode` `0000` means the order was created; any other " +
+              'value means RRPay rejected it and `stateInfo` explains why.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/PayinCreateResponse' },
+                examples: {
+                  created: { summary: 'Order created upstream', value: successExample },
+                  upstreamRejected: {
+                    summary: 'RRPay rejected the request',
+                    value: {
+                      resultCode: '9999',
+                      stateInfo: 'Duplicate outTradeNo!',
+                      sign: 'D41D8CD98F00B204E9800998ECF8427E',
+                    },
+                  },
+                },
+              },
+            },
+          },
+          400: {
+            description: 'Local validation failed (nothing was sent to RRPay)',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/PayinOrderValidationError' },
+                examples: {
+                  missingAmount: {
+                    summary: 'No amount',
+                    value: { error: 'amount is required', example: { amount: '150.00' } },
+                  },
+                  badAmount: {
+                    summary: 'Bad amount',
+                    value: {
+                      error: 'Invalid amount',
+                      received: 'abc',
+                      expected: 'positive number, max 2 decimals, max 9 characters (e.g. 150.00)',
+                    },
+                  },
+                  badPayType: {
+                    summary: 'Pay type not valid for the currency',
+                    value: {
+                      error: 'Invalid payType',
+                      received: 'PIX',
+                      currencyCode: 'INR',
+                      supported: ['INRO', 'INRT', 'SCAN'],
+                    },
+                  },
+                },
+              },
+            },
+          },
+          502: {
+            description: 'Could not reach RRPay (network, DNS or timeout)',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/PayinOrderNetworkError' },
+                example: {
+                  error: 'RRPay request failed',
+                  message: 'fetch failed',
+                  code: 'ENOTFOUND',
+                  cause: 'getaddrinfo ENOTFOUND api.rrpay.ai',
+                  url: 'https://api.rrpay.ai/payin/create',
+                  durationMs: 34,
+                  request: { merNo: exampleMerchantNo, totalAmount: '150.00' },
                 },
               },
             },
@@ -299,6 +407,86 @@ const openApiSpec = {
         type: 'object',
         required: payinRequired.filter((field) => field !== 'sign'),
         properties: { ...payinProperties, sign: undefined },
+      },
+      PayinOrderRequest: {
+        type: 'object',
+        required: ['amount'],
+        properties: {
+          amount: {
+            type: 'string',
+            maxLength: 9,
+            pattern: '^\\d+(\\.\\d{1,2})?$',
+            example: '150.00',
+            description: 'Amount to charge. Up to two decimals; normalized to two decimals.',
+          },
+          currencyCode: {
+            type: 'string',
+            enum: Object.keys(CURRENCIES),
+            example: 'INR',
+            description: 'Optional. Defaults to INR.',
+          },
+          payType: {
+            type: 'string',
+            example: 'SCAN',
+            description: 'Optional. Defaults to SCAN; must belong to currencyCode.',
+          },
+          notifyUrl: {
+            type: 'string',
+            format: 'uri',
+            maxLength: 128,
+            description: 'Optional. Overrides the built-in payment callback URL.',
+          },
+          payViewUrl: {
+            type: 'string',
+            format: 'uri',
+            maxLength: 128,
+            description: 'Optional redirect after payment.',
+          },
+          payName: { type: 'string', maxLength: 32, example: 'xiaoming' },
+          payEmail: { type: 'string', format: 'email', maxLength: 32, example: 'xiaoming@email.com' },
+          payPhone: {
+            type: 'string',
+            maxLength: 32,
+            example: '+917123456789',
+            description: 'INR/INRTWO: +91 + 10 digits starting 6-9. Others: +<8-15 digits>.',
+          },
+          pay: {
+            type: 'string',
+            format: 'ipv4',
+            maxLength: 32,
+            description: 'Optional payer IP. Private/reserved addresses fall back to the server default.',
+          },
+          payCardNo: { type: 'string', maxLength: 32, example: '123456' },
+          payBankCode: { type: 'string', maxLength: 32, example: 'PAY' },
+        },
+      },
+      PayinOrderValidationError: {
+        type: 'object',
+        properties: {
+          error: { type: 'string', example: 'Invalid amount' },
+          received: { description: 'The rejected value' },
+          expected: { type: 'string' },
+          currencyCode: { type: 'string' },
+          supported: { type: 'array', items: { type: 'string' } },
+          example: { type: 'object' },
+        },
+      },
+      PayinOrderNetworkError: {
+        type: 'object',
+        properties: {
+          error: { type: 'string', example: 'RRPay request failed' },
+          message: { type: 'string', example: 'fetch failed' },
+          code: { type: 'string', example: 'ENOTFOUND' },
+          cause: { type: 'string' },
+          url: { type: 'string', example: 'https://api.rrpay.ai/payin/create' },
+          durationMs: { type: 'number', example: 34 },
+          request: {
+            type: 'object',
+            description: 'The exact signed payload sent to RRPay',
+            additionalProperties: true,
+          },
+          stack: { type: 'string', description: 'Only outside production' },
+        },
       },
       PayinCreateResponse: {
         type: 'object',
