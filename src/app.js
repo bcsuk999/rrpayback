@@ -1,5 +1,7 @@
 import express from 'express';
 import mongoose from 'mongoose';
+import payinRouter from './routes/payin.js';
+import payRouter from './routes/pay.js';
 
 const app = express();
 
@@ -13,7 +15,8 @@ app.get('/health', (req, res) => {
   });
 });
 
-// API routes go here, e.g. app.use('/api/users', userRouter);
+app.use('/payin', payinRouter);
+app.use('/pay', payRouter);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Not found' });

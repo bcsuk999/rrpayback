@@ -8,8 +8,11 @@ for (const key of required) {
   }
 }
 
+const port = Number(process.env.PORT ?? 4000);
+
 export const env = {
   nodeEnv: process.env.NODE_ENV ?? 'development',
-  port: Number(process.env.PORT ?? 4000),
+  port,
   mongoUri: process.env.MONGODB_URI,
+  payUrlBase: (process.env.PAY_URL_BASE ?? `http://localhost:${port}/pay`).replace(/\/+$/, ''),
 };

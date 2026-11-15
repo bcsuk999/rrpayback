@@ -314,3 +314,61 @@ YYYY-MM-DD HH:mm:ss
 sign Encrypted string String(32) Must be passed on Uppercase letters; for generation rules, please refer to the Appendix - Signature Specifications.
 Remark
 If any submitted parameters are unclear, please contact customer service for further assistance.
+Our company's APIs uniformly use the HTTP standard POST request protocol. Please do not submit parameters using methods such as streaming. Furthermore, to ensure the accuracy and authenticity of the data received, all transmitted data must be signed before uploading.
+Our platform uses UTF-8 encoding, and all parameter values ​​are in JSON format.
+The MD5 secure signature mechanism is a signature key agreed upon by the merchant and the platform. Each time a signature is made, the merchant's key is appended to the string to be signed, and then an MD5 encryption operation is performed to obtain a signature string. The merchant and the platform use the same method to obtain the signature string during verification. After comparison, it is confirmed whether the signatures are consistent. If they are consistent, the signature passes; otherwise, a signature error message is returned.
+Signature rules
+
+1. Please sort the request parameter fields in ascending order according to ASCII code (parameter names from a to z; if the first letter is the same, look at the second letter, and so on). Fields with empty values ​​will not be included in the signature. Combine them into a JSON string, append the merchant key, and then perform MD5 encryption. The encrypted string should have the following format:
+   {"Parameter name 1":"Parameter value 1","Parameter name 2":"Parameter value 2",...,"Parameter name n":"Parameter value n"} Merchant Key
+   Price:
+   {“merNo”:”123456789”,”notifyUrl”:”http \* “,”outTradeNo”:”112233445566778899”,”randomNo”:”123123”,”totalAmount”:”10.63”,”payType”:”PIX”}
+
+2. After reassembling the JSON string, directly append the key provided by the platform to the merchant (assuming the key is: KJF74JF92JF93K960FK59GL7) to form a new string:
+   {“merNo”:”123456789”,”notifyUrl”:”http\*“,”outTradeNo”:”112233445566778899”,”randomNo”:”123123”,”totalAmount”:”10.63”,”payType”:”PIX”}KJSDLKFJ1029382139038
+
+3. Encrypt the string above using MD5, convert the encrypted signature string to uppercase, and put the generated signature string into the sign node of the request parameter JSON object.
+   {“merNo”:”123456789”,”notifyUrl”:”http\*“,”outTradeNo”:”112233445566778899”,”randomNo”:”123123”,”totalAmount”:”10.63”,”payType”:”PIX”,”sign”:”E22D02AFD75D0374D3EA8D142FC2B219”}
+
+Signature Notes
+Parameter names are sorted by ASCII code from smallest to largest (lexicographical order).
+First, convert to JSON string format, then directly concatenate the key value for encryption.
+Automatic submission is not mandatory; empty values ​​do not participate in the signature, and parameter names do not need to be submitted.
+The generated string is then MD5 encrypted and converted to uppercase.
+Currency type
+India: Category 1
+Currency Code
+Currency Name
+INR India
+India: Category II
+Currency Code
+Currency Name
+INRTWO Indian Category II
+Mexico: Category 1
+Currency Code
+Currency Name
+MXN Mexico
+Pakistan: Category 1
+Currency Code
+Currency Name
+PKR Pakistan
+Vietnam
+Currency Code
+Currency Name
+VND Vietnam
+Indonesia
+Currency Code
+Currency Name
+IDR Indonesia
+Bengal
+Currency Code
+Currency Name
+BDT Bengal
+the Philippines
+Currency Code
+Currency Name
+PHP Philippine Peso
+Brazil
+Currency Code
+Currency Name
+BRL Brazilian Real
