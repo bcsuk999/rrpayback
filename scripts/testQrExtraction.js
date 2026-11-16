@@ -1,4 +1,5 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+dotenv.config({ override: true, quiet: true });
 import crypto from 'node:crypto';
 import sharp from 'sharp';
 import jsQR from 'jsqr';

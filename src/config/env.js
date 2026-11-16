@@ -1,4 +1,9 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+
+// Always honor the values in .env — even when a variable is already present in
+// the shell/process environment. This makes .env the single source of truth
+// (e.g. the Telegram bot can never pick up a stray shell override).
+dotenv.config({ override: true, quiet: true });
 
 const required = ['MONGODB_URI'];
 

@@ -1,4 +1,5 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+dotenv.config({ override: true, quiet: true });
 import mongoose from 'mongoose';
 import connectDB from '../src/config/db.js';
 import Merchant from '../src/models/Merchant.js';
