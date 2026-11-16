@@ -4,6 +4,10 @@ import Group from '../models/Group.js';
 import Transaction from '../models/Transaction.js';
 import { createSign, verifySign } from '../utils/signature.js';
 import asyncHandler from '../utils/asyncHandler.js';
+import { notifyPayinSuccess } from '../bot/commands.js';
+import logger from '../utils/logger.js';
+
+const log = logger.child({ scope: 'payin.notify' });
 
 /**
  * RRPay payin result notification (async callback).
@@ -12,6 +16,10 @@ import asyncHandler from '../utils/asyncHandler.js';
  */
 export const handlePayinNotify = asyncHandler(async (req, res) => {
   const body = req.body ?? {};
+  log.info({
+    event: 'payin.notify.received',
+    rrpayCallback: body,
+  }, 'RRPay payin callback received');
 
   // Verify the merchant signature. RRPay signs every callback.
   if (env.merchantSecret && body.sign) {
@@ -41,6 +49,7 @@ export const handlePayinNotify = asyncHandler(async (req, res) => {
   if (utrCode) payin.utrCode = utrCode;
   payin.rawCallback = body;
 
+  let groupChatId = payin.groupId;
   if (payState === '0000') {
     payin.status = 'success';
     if (!payin.paidAt) payin.paidAt = new Date();
@@ -49,6 +58,7 @@ export const handlePayinNotify = asyncHandler(async (req, res) => {
     if (payin.group) {
       const group = await Group.findById(payin.group);
       if (group) {
+        groupChatId = group.groupId;
         const amount = Number(payin.totalAmount?.toString?.() ?? totalAmount);
         const current = Number(group.balance?.toString?.() ?? '0');
         group.balance = (current + amount).toFixed(2);
@@ -72,6 +82,14 @@ export const handlePayinNotify = asyncHandler(async (req, res) => {
   }
 
   await payin.save();
+
+  if (payin.status === 'success') {
+    await notifyPayinSuccess({
+      orderId: payin.payOrderNo,
+      amount: payin.deeplinkAmount || payin.totalAmount?.toString?.() || totalAmount,
+      groupId: groupChatId,
+    });
+  }
 
   return res.type('text/plain').send('SUCCESS');
 });

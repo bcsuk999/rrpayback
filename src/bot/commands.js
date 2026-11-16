@@ -1,5 +1,5 @@
 import { isOwner } from './config.js';
-import { buildDepositReply, DEPOSIT_EXPIRY_MINUTES } from './deposit.js';
+import { buildDepositReply, buildSuccessNotice, DEPOSIT_EXPIRY_MINUTES } from './deposit.js';
 import logger from '../utils/logger.js';
 import Payin from '../models/Payin.js';
 import Group from '../models/Group.js';
@@ -145,16 +145,95 @@ const PL_LINE = '/pl <t|y|w|m|DD/MM/YY> <cost> - Group profit/loss report';
 const MD_LINE = '/md, /me - Toggle maintenance mode (owner only)';
 const Q_LINE = '/q <order id> - Get full order details (owner DM only)';
 
-// Telegram message ids of the deposit slips sent by /d, keyed by payOrderNo (for edit-in-place).
-const depositMsgIds = new Map();
+// Telegram message references for /d slips, keyed by payOrderNo (for edit-in-place).
+const depositMessages = new Map();
+const depositExpiryTimers = new Map();
 let _config = null;
+let _bot = null;
 
-function rememberDepositMessage(orderNo, messageId) {
-  if (orderNo && messageId) depositMsgIds.set(String(orderNo), messageId);
+function rememberDepositMessage(orderNo, chatId, messageId, details) {
+  if (!orderNo || !chatId || !messageId) return;
+  const key = String(orderNo);
+  clearDepositExpiryTimer(key);
+
+  const reference = { chatId, messageId, ...details, status: 'pending' };
+  depositMessages.set(key, reference);
+  const delay = Math.max(0, details.expiresAt.getTime() - Date.now());
+  const timer = setTimeout(() => {
+    void expireDepositMessage(key, reference);
+  }, delay);
+  depositExpiryTimers.set(key, timer);
 }
 
-function forgetDepositMessage(orderNo) {
-  if (orderNo) depositMsgIds.delete(String(orderNo));
+async function expireDepositMessage(orderNo, reference) {
+  if (depositMessages.get(orderNo) !== reference || reference.status !== 'pending') return;
+  reference.status = 'expired';
+  depositExpiryTimers.delete(orderNo);
+  const deposit = buildDepositReply({
+    orderId: orderNo,
+    amount: reference.amount,
+    upiId: reference.upiId,
+    expiresAt: reference.expiresAt,
+    expired: true,
+  });
+  try {
+    await _bot.api.editMessageText({
+      chat_id: reference.chatId,
+      message_id: reference.messageId,
+      text: deposit.text,
+      ...deposit.options,
+    });
+    log.info({ event: 'bot.deposit.expired', orderNo, chatId: reference.chatId }, 'deposit message expired');
+  } catch (err) {
+    log.error({ event: 'bot.deposit.expire_edit_failed', orderNo, chatId: reference.chatId, err }, 'failed to edit expired deposit message');
+  }
+}
+
+async function notifyPayinSuccess({ orderId, amount, groupId }) {
+  const reference = depositMessages.get(String(orderId));
+  if (reference) {
+    reference.status = 'completed';
+    clearDepositExpiryTimer(orderId);
+    const deposit = buildDepositReply({
+      orderId,
+      amount: reference.amount,
+      upiId: reference.upiId,
+      expiresAt: reference.expiresAt,
+      completed: true,
+    });
+    try {
+      await _bot.api.editMessageText({
+        chat_id: reference.chatId,
+        message_id: reference.messageId,
+        text: deposit.text,
+        ...deposit.options,
+      });
+      log.info({ event: 'bot.deposit.completed', orderNo: orderId, chatId: reference.chatId }, 'deposit message marked completed');
+    } catch (err) {
+      log.error({ event: 'bot.deposit.complete_edit_failed', orderNo: orderId, chatId: reference.chatId, err }, 'failed to edit completed deposit message');
+    }
+  }
+
+  if (!groupId) {
+    log.warn({ event: 'bot.payin_notice.skipped', orderNo: orderId, reason: 'missing_group_id' }, 'payin success notice skipped');
+    return;
+  }
+  if (!_bot?.api?.sendMessage) {
+    log.warn({ event: 'bot.payin_notice.skipped', orderNo: orderId, groupId, reason: 'bot_unavailable' }, 'payin success notice skipped');
+    return;
+  }
+
+  const notice = buildSuccessNotice({ orderId, amount, direction: 'credit' });
+  try {
+    await _bot.api.sendMessage({
+      chat_id: groupId,
+      text: notice.text,
+      ...notice.options,
+    });
+    log.info({ event: 'bot.payin_notice.sent', orderNo: orderId, groupId }, 'payin success notice sent');
+  } catch (err) {
+    log.error({ event: 'bot.payin_notice.failed', orderNo: orderId, groupId, err }, 'failed to send payin success notice');
+  }
 }
 
 function helpText({ owner = false } = {}) {
@@ -165,6 +244,12 @@ function helpText({ owner = false } = {}) {
 }
 
 const HELP = helpText();
+
+function clearDepositExpiryTimer(orderNo) {
+  const timer = depositExpiryTimers.get(String(orderNo));
+  if (timer) clearTimeout(timer);
+  depositExpiryTimers.delete(String(orderNo));
+}
 
 async function reply(ctx, text, options) {
   const opts = options ?? { parse_mode: 'HTML' };
@@ -300,15 +385,20 @@ async function handleOrder(ctx, config) {
         return editOrSend(groupMsg);
       }
 
+      const expiresAt = new Date(Date.now() + DEPOSIT_EXPIRY_MINUTES * 60 * 1000);
       const deposit = buildDepositReply({
         orderId: orderNo,
         amount: displayAmount,
         upiId,
-        expiresAt: new Date(),
+        expiresAt,
       });
       const sentMsg = await editOrSend(deposit.text, deposit.options);
       if (orderNo && (sentMsg?.message_id || processingMsg?.message_id)) {
-        rememberDepositMessage(orderNo, sentMsg?.message_id || processingMsg.message_id);
+        rememberDepositMessage(orderNo, chat.id, sentMsg?.message_id || processingMsg.message_id, {
+          amount: displayAmount,
+          upiId,
+          expiresAt,
+        });
       }
       return sentMsg;
     }
@@ -438,19 +528,23 @@ async function handleStatus(ctx) {
     log.info({ event: 'bot.status.response', ...ctxMeta(ctx), orderNo, status, amount, upiIdPresent: Boolean(upiId) }, 'order status fetched');
 
     if (status === 'success') {
+      const reference = depositMessages.get(String(orderNo));
+      if (reference) {
+        reference.status = 'completed';
+        clearDepositExpiryTimer(orderNo);
+      }
       const deposit = buildDepositReply({
         orderId,
-        amount,
-        upiId,
-        expiresAt: new Date(),
+        amount: reference?.amount ?? amount,
+        upiId: reference?.upiId ?? upiId,
+        expiresAt: reference?.expiresAt ?? new Date(),
         completed: true,
       });
-      const messageId = depositMsgIds.get(String(orderNo));
-      if (messageId) {
+      if (reference) {
         try {
           await ctx.api.editMessageText({
-            chat_id: ctx.chat.id,
-            message_id: messageId,
+            chat_id: reference.chatId,
+            message_id: reference.messageId,
             text: deposit.text,
             ...deposit.options,
           });
@@ -464,19 +558,23 @@ async function handleStatus(ctx) {
     }
 
     if (status === 'expired') {
+      const reference = depositMessages.get(String(orderNo));
+      if (reference) {
+        reference.status = 'expired';
+        clearDepositExpiryTimer(orderNo);
+      }
       const deposit = buildDepositReply({
         orderId,
-        amount,
-        upiId,
-        expiresAt: new Date(),
+        amount: reference?.amount ?? amount,
+        upiId: reference?.upiId ?? upiId,
+        expiresAt: reference?.expiresAt ?? new Date(),
         expired: true,
       });
-      const messageId = depositMsgIds.get(String(orderNo));
-      if (messageId) {
+      if (reference) {
         try {
           await ctx.api.editMessageText({
-            chat_id: ctx.chat.id,
-            message_id: messageId,
+            chat_id: reference.chatId,
+            message_id: reference.messageId,
             text: deposit.text,
             ...deposit.options,
           });
@@ -511,6 +609,7 @@ async function handleStatus(ctx) {
 }
 
 function register(bot, config) {
+  _bot = bot;
   _config = config;
   bot.command('balance', async (ctx) => {
     const chat = ctx.chat || {};
@@ -518,7 +617,7 @@ function register(bot, config) {
     const group = await getRegisteredGroup(chat.id);
     if (!group) return reply(ctx, 'This group is not registered. Owner must run /reg first.');
     const groupDoc = await fetchGroupById(chat.id);
-    return reply(
+    return reply(ctx,
       '💰 Group balance\n' +
       'UID: <code>' + (groupDoc?.uid || group.uid) + '</code>\n' +
       'Group: <code>' + chat.id + '</code>\n' +
@@ -547,7 +646,7 @@ function register(bot, config) {
     const group = await getRegisteredGroup(chat.id);
     if (!group) return reply(ctx, 'This group is not registered. Owner must run /reg first.');
     const createdAt = group.createdAt ? fmtDate(group.createdAt) : '-';
-    return reply(
+    return reply(ctx,
       '🆔 Group info\n' +
       'Group ID: <code>' + escapeHtml(String(group.groupId ?? chat.id)) + '</code>\n' +
       'UID: <code>' + escapeHtml(group.uid || '-') + '</code>\n' +
@@ -618,4 +717,14 @@ function register(bot, config) {
   return true;
 }
 
-export { register, handleOrder, handleStatus, handleQ, HELP, reply, getRegisteredGroup, fetchGroupById };
+export {
+  register,
+  handleOrder,
+  handleStatus,
+  handleQ,
+  HELP,
+  reply,
+  notifyPayinSuccess,
+  getRegisteredGroup,
+  fetchGroupById,
+};

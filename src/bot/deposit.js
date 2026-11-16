@@ -73,4 +73,36 @@ function buildDepositReply({ orderId, amount, upiId, expiresAt, expired = false,
   };
 }
 
-export { DEPOSIT_EXPIRY_MINUTES, EXPIRED_LINE_TEXT, buildDepositReply, escapeHtml, formatAmount, formatInr, formatExpiryIst };
+function buildSuccessNotice({ orderId, amount, direction }) {
+  const type = direction === 'debit' ? 'PAYOUT🔺' : 'PAYIN🔻';
+  const safeOrderId = escapeHtml(orderId);
+  const text = [
+    'Order completed 💕',
+    '',
+    'Order type: Payment Order',
+    `type: ${type}`,
+    `Order No: <code>${safeOrderId}</code>`,
+    'Status: Completed✅',
+    `Amount: ${formatAmount(amount)}`,
+  ].join('\n');
+
+  const options = {
+    parse_mode: 'HTML',
+    reply_markup: {
+      inline_keyboard: [[{ text: 'Copy Order No', copy_text: { text: String(orderId) } }]],
+    },
+  };
+
+  return { text, options };
+}
+
+export {
+  DEPOSIT_EXPIRY_MINUTES,
+  EXPIRED_LINE_TEXT,
+  buildDepositReply,
+  buildSuccessNotice,
+  escapeHtml,
+  formatAmount,
+  formatInr,
+  formatExpiryIst,
+};
