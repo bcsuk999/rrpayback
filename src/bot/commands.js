@@ -392,7 +392,6 @@ async function handleQ(ctx, config) {
     const upi = payin.upiId || '-';
     const createdAt = fmtDate(payin.createdAt);
     const successAt = payin.status === 'success' ? fmtDate(payin.paidAt || payin.updatedAt) : '-';
-    const balanceAfter = '-'; // not tracked on Payin
     const payUrl = payin.payURL || '-';
     const status = payin.status || '-';
 
@@ -406,7 +405,6 @@ async function handleQ(ctx, config) {
       'Amount: <code>' + escapeHtml(String(amount ?? '-')) + '</code>',
       'Created at: ' + escapeHtml(createdAt),
       'Success at: ' + escapeHtml(successAt),
-      'Balance after: ' + escapeHtml(balanceAfter),
       'Pay URL: ' + (payUrl !== '-' ? escapeHtml(payUrl) : '-'),
     ];
 
