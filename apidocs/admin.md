@@ -327,7 +327,7 @@ Search and list payins with filters and pagination.
   "payins": [
     {
       "_id": "664f1f77bcf86cd799439011",
-      "payOrderNo": "RP261116183314271108671757187826",
+      "payOrderNo": "OR16112026000066794",
       "outTradeNo": "PI2611161303134809",
       "uid": "49526",
       "groupId": -5526650022,
@@ -369,7 +369,7 @@ Search and list payins with filters and pagination.
 | Field | Type | Remarks |
 | :---- | :--- | :------ |
 | _id | String | MongoDB `_id` of the payin |
-| payOrderNo | String | Our system's payment order number |
+| payOrderNo | String | Our system's payment order number: `OR` + `ddmmyyyy` + 9-digit time-of-day seconds (e.g. `OR16112026000066794`) |
 | outTradeNo | String | Merchant's own order/reference number |
 | uid | String | Group UID |
 | groupId | Number | Telegram/group ID |
@@ -414,7 +414,7 @@ Get a single payin by MongoDB `_id` or `payOrderNo`.
   "success": true,
   "payin": {
     "_id": "664f1f77bcf86cd799439011",
-    "payOrderNo": "RP261116183314271108671757187826",
+    "payOrderNo": "OR16112026000066794",
     "merchant": "664e...",
     "outTradeNo": "PI2611161303134809",
     "currencyCode": "INR",
@@ -499,7 +499,7 @@ Manually approve a payin (admin action). Sets status to `success`, sets `paidAt`
   "msg": "Payin approved",
   "payin": {
     "_id": "664f1f77bcf86cd799439011",
-    "payOrderNo": "RP261116183314271108671757187826",
+    "payOrderNo": "OR16112026000066794",
     "status": "success",
     "payState": "0000",
     "paidAt": "2026-11-16T10:05:00.000Z",
