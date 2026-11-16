@@ -541,6 +541,20 @@ function register(bot, config) {
     return handleOrder(ctx, config);
   }));
 
+  bot.command('id', async (ctx) => safeHandler('id', ctx, async () => {
+    const chat = ctx.chat || {};
+    if (chat.type === 'private') return reply(ctx, 'Run /id inside a registered group.');
+    const group = await getRegisteredGroup(chat.id);
+    if (!group) return reply(ctx, 'This group is not registered. Owner must run /reg first.');
+    const createdAt = group.createdAt ? fmtDate(group.createdAt) : '-';
+    return reply(
+      '🆔 Group info\n' +
+      'Group ID: <code>' + escapeHtml(String(group.groupId ?? chat.id)) + '</code>\n' +
+      'UID: <code>' + escapeHtml(group.uid || '-') + '</code>\n' +
+      'Created at: ' + escapeHtml(createdAt)
+    );
+  }));
+
   bot.command('help', (ctx) => safeHandler('help', ctx, () => {
     log.info({ event: 'bot.command', ...ctxMeta(ctx), command: 'help' }, 'command received');
     const ownerDm = isOwner(ctx.from, config) && ctx.chat?.type === 'private';

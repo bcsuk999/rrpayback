@@ -87,6 +87,7 @@ export async function startBot() {
 
     const groupMenu = [
       { command: 'balance', description: 'Show group balance' },
+      { command: 'id', description: 'Show group ID, UID and created date' },
       { command: 'd', description: 'Create a payin order: /d <amount>' },
       { command: 'help', description: 'Show available commands' },
       { command: 'status', description: 'Check an order: /status <payOrderNo>' },
