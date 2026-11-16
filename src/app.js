@@ -10,7 +10,7 @@ import adminRouter from './routes/admin.js';
 const app = express();
 
 // Comprehensive CORS: allow the production frontend origin, handle OPTIONS preflight.
-const allowedOrigins = ['https://rrpayadmin.netlify.app', 'http://localhost:5173'];
+const allowedOrigins = ['https://rrpayadmin.netlify.app', 'https://rrpayadmin.vercel.app', 'http://localhost:5173'];
 
 app.use(
   cors({
