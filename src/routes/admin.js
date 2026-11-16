@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { requireAdmin } from '../middleware/requireAdmin.js';
 import { listGroups, updateGroup } from '../controllers/adminGroupController.js';
 import { listPayins, getPayin, approvePayin } from '../controllers/adminPayinController.js';
-import { listTransactions } from '../controllers/adminTransactionController.js';
+import { listTransactions, createTransaction } from '../controllers/adminTransactionController.js';
 
 const router = Router();
 
@@ -14,5 +14,6 @@ router.get('/payins/:id', requireAdmin, getPayin);
 router.patch('/payins/:id/approve', requireAdmin, approvePayin);
 
 router.get('/transactions', requireAdmin, listTransactions);
+router.post('/transactions', requireAdmin, createTransaction);
 
 export default router;

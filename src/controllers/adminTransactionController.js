@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import Transaction from '../models/Transaction.js';
+import Group from '../models/Group.js';
 import asyncHandler from '../utils/asyncHandler.js';
 
 const Decimal128 = mongoose.Types.Decimal128;
@@ -90,5 +91,77 @@ export const listTransactions = asyncHandler(async (req, res) => {
     ...(includeTotal ? { total, totalPages: Math.ceil(total / limit) } : {}),
     hasMore: transactions.length === limit,
     transactions,
+  });
+});
+
+function normalizeAmountString(value) {
+  const raw = String(value).trim();
+  if (!/^\d+(\.\d{1,2})?$/.test(raw)) return null;
+  const [intPart, fracPart = ''] = raw.split('.');
+  return `${intPart}.${`${fracPart}00`.slice(0, 2)}`;
+}
+
+export const createTransaction = asyncHandler(async (req, res) => {
+  const { uid, type, remark } = req.body ?? {};
+  const amountInput = req.body?.amount;
+
+  if (!uid || String(uid).trim() === '') {
+    return res.status(400).json({ success: false, msg: 'uid is required' });
+  }
+  const normalizedType = String(type ?? '').trim().toLowerCase();
+  if (!['credit', 'debit'].includes(normalizedType)) {
+    return res.status(400).json({ success: false, msg: 'type must be credit or debit' });
+  }
+  const amountStr = normalizeAmountString(amountInput ?? '');
+  if (!amountStr) {
+    return res.status(400).json({ success: false, msg: 'amount must be a positive number with up to 2 decimals' });
+  }
+  if (Number(amountStr) <= 0) {
+    return res.status(400).json({ success: false, msg: 'amount must be greater than 0' });
+  }
+
+  const group = await Group.findOne({ uid: String(uid).trim() }).select('uid groupId balance').lean();
+  if (!group) {
+    return res.status(404).json({ success: false, msg: 'Group not found' });
+  }
+
+  const amount = Decimal128.fromString(amountStr);
+  const delta = normalizedType === 'credit'
+    ? amount
+    : Decimal128.fromString(`-${amountStr}`);
+
+  // Atomic balance update. Debits only apply when funds are sufficient.
+  const balanceFilter = normalizedType === 'debit' ? { balance: { $gte: amount } } : {};
+  const updatedGroup = await Group.findOneAndUpdate(
+    { _id: group._id, ...balanceFilter },
+    { $inc: { balance: delta } },
+    { new: true, projection: 'uid groupId balance' }
+  ).lean();
+
+  if (!updatedGroup) {
+    return res.status(400).json({ success: false, msg: 'Insufficient balance for debit' });
+  }
+
+  const note = String(remark ?? '').trim() || `Manual ${normalizedType} by admin`;
+
+  const transaction = await Transaction.create({
+    uid: updatedGroup.uid,
+    groupId: updatedGroup.groupId,
+    amount,
+    type: normalizedType,
+    coType: 'adjustment',
+    balanceAfter: updatedGroup.balance,
+    remark: note,
+  });
+
+  return res.status(201).json({
+    success: true,
+    msg: `Transaction ${normalizedType}ed`,
+    group: {
+      uid: updatedGroup.uid,
+      groupId: updatedGroup.groupId,
+      balance: updatedGroup.balance,
+    },
+    transaction,
   });
 });

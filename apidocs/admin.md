@@ -631,6 +631,76 @@ Search a group/user's transaction ledger by UID / group ID with date filters and
 
 ---
 
+### `POST /admin/transactions`
+
+Manually create a `credit` or `debit` transaction for any group/user by UID. Updates the group balance atomically and records the ledger entry with the resulting balance.
+
+**Auth:** Required (Bearer token)
+
+**Request Body** (`Content-Type: application/json`)
+
+| Parameter | Type | Required | Remarks |
+| :-------- | :--- | :------- | :------ |
+| uid | String | Yes | Group UID (must exist) |
+| type | String | Yes | `credit` \| `debit` |
+| amount | Number/String | Yes | Positive amount, up to 2 decimals (e.g. `100.50`) |
+| remark | String | No | Note stored on the transaction (default: `Manual <type> by admin`) |
+
+**Example Request**
+
+```json
+{
+  "uid": "49526",
+  "type": "credit",
+  "amount": 100.5,
+  "remark": "Manual bonus"
+}
+```
+
+**Response — 201 Created**
+
+```json
+{
+  "success": true,
+  "msg": "Transaction credited",
+  "group": {
+    "uid": "49526",
+    "groupId": -5526650022,
+    "balance": "200.50"
+  },
+  "transaction": {
+    "_id": "6650aabbccddeeff00112244",
+    "uid": "49526",
+    "groupId": -5526650022,
+    "amount": "100.50",
+    "type": "credit",
+    "coType": "adjustment",
+    "balanceAfter": "200.50",
+    "remark": "Manual bonus",
+    "createdAt": "2026-11-16T10:10:00.000Z",
+    "updatedAt": "2026-11-16T10:10:00.000Z"
+  }
+}
+```
+
+**Behavior**
+- `credit` adds the amount to the group balance.
+- `debit` subtracts the amount; the debit is rejected if the balance is insufficient (no negative balance).
+- The balance update is atomic, and the transaction stores `coType: "adjustment"` plus the `balanceAfter` snapshot.
+
+**Errors**
+
+| Status | `success` | `msg` |
+| :----- | :-------- | :---- |
+| 400 | false | `uid is required` |
+| 400 | false | `type must be credit or debit` |
+| 400 | false | `amount must be a positive number with up to 2 decimals` |
+| 400 | false | `amount must be greater than 0` |
+| 400 | false | `Insufficient balance for debit` |
+| 404 | false | `Group not found` |
+
+---
+
 ## Summary of Admin Endpoints
 
 | Method   | URL                           | Auth | Description                                  |
@@ -643,6 +713,7 @@ Search a group/user's transaction ledger by UID / group ID with date filters and
 | GET      | `/admin/payins/:id`          | Yes  | Get payin details                            |
 | PATCH    | `/admin/payins/:id/approve`  | Yes  | Approve payin (admin action)                 |
 | GET      | `/admin/transactions`        | Yes  | Search transactions by uid/groupId + dates   |
+| POST     | `/admin/transactions`        | Yes  | Create manual credit/debit transaction       |
 
 ---
 
