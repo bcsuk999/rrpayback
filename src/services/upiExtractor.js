@@ -112,11 +112,34 @@ async function extractFromWalletPay(payUrl) {
     },
     body: JSON.stringify({ orderNo }),
   });
-  const json = await res.json().catch(() => ({}));
-  if (json.code !== 200 && json.code !== 0) {
-    throw new Error(json.message || json.msg || `wallet_api_error_${json.code}`);
+  const responseText = await res.text();
+  let json;
+  try {
+    json = responseText ? JSON.parse(responseText) : null;
+  } catch {
+    throw new Error(`wallet_api_invalid_json_http_${res.status}`);
   }
-  const data = json.data || {};
+  if (!res.ok) throw new Error(`wallet_api_http_${res.status}`);
+  if (!json || typeof json !== 'object' || Array.isArray(json)) {
+    throw new Error('wallet_api_invalid_response');
+  }
+
+  const envelope = json.data && typeof json.data === 'object' && !Array.isArray(json.data)
+    ? json.data
+    : json;
+  const responseCode = json.code ?? envelope.code;
+  if (responseCode !== undefined && ![200, 0, '200', '0'].includes(responseCode)) {
+    throw new Error(
+      json.message ||
+      json.msg ||
+      envelope.message ||
+      envelope.msg ||
+      `wallet_api_error_${responseCode}`,
+    );
+  }
+  const data = envelope.data && typeof envelope.data === 'object' && !Array.isArray(envelope.data)
+    ? envelope.data
+    : envelope;
 
   let upiId = (data.upi || data.upiId || data.upi_id || '').trim() || null;
   let amount = data.payAmount ?? data.amount ?? null;
