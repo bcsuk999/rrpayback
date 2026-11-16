@@ -88,7 +88,7 @@ async function handleOrder(ctx, config) {
         upiId: data.upiId || null,
         expiresAt: new Date(),
       });
-      const sentMsg = await ctx.telegram
+      const sentMsg = await ctx.api
         .sendMessage(ctx.chat.id, deposit.text, deposit.options)
         .catch(() => null);
       if (orderNo && sentMsg?.message_id) rememberDepositMessage(orderNo, sentMsg.message_id);
@@ -126,7 +126,7 @@ async function handleStatus(ctx) {
       const messageId = depositMsgIds.get(orderNo);
       if (messageId) {
         try {
-          await ctx.telegram.editMessageText(ctx.chat.id, messageId, deposit.text, deposit.options);
+          await ctx.api.editMessageText(ctx.chat.id, messageId, deposit.text, deposit.options);
           return;
         } catch (_) {
           // fall through to a normal send if edit fails
@@ -146,7 +146,7 @@ async function handleStatus(ctx) {
       const messageId = depositMsgIds.get(orderNo);
       if (messageId) {
         try {
-          await ctx.telegram.editMessageText(ctx.chat.id, messageId, deposit.text, deposit.options);
+          await ctx.api.editMessageText(ctx.chat.id, messageId, deposit.text, deposit.options);
           return;
         } catch (_) {
           // fall through to a normal send if edit fails
