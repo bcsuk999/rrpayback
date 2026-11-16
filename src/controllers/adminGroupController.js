@@ -1,10 +1,6 @@
 import Group from '../models/Group.js';
 import asyncHandler from '../utils/asyncHandler.js';
 
-function escapeRegex(value) {
-  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 export const listGroups = asyncHandler(async (req, res) => {
   const requestedPage = Number(req.query.page);
   const page = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
@@ -21,17 +17,6 @@ export const listGroups = asyncHandler(async (req, res) => {
     if (Number.isFinite(groupId)) filter.groupId = groupId;
   }
   if (req.query.status) filter.status = String(req.query.status).trim();
-
-  const search = String(req.query.search || req.query.q || '').trim();
-  if (search) {
-    const matches = [
-      { uid: search },
-      { groupName: { $regex: `^${escapeRegex(search)}` } },
-    ];
-    const groupId = Number(search);
-    if (Number.isFinite(groupId)) matches.push({ groupId });
-    filter.$or = matches;
-  }
 
   const includeTotal = String(req.query.includeTotal ?? 'true').toLowerCase() !== 'false';
 

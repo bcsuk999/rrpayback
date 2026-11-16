@@ -170,10 +170,10 @@ List payment groups. Results are paginated by default.
 
 | Parameter | Type | Remarks |
 | :-------- | :--- | :------ |
-| search / q | String | Exact UID or group ID; case-sensitive group-name prefix |
 | uid | String | Exact group UID |
 | groupId | Number | Exact Telegram/group ID |
 | status | String | `active` \| `suspended` \| `banned` |
+| includeTotal | Boolean | `true` (default): include `count` + `totalPages`. `false`: skip the count query (faster) — `count`/`totalPages` are omitted |
 | page | Number | Page number (default: `1`) |
 | limit | Number | Page size (default: `20`, max: `100`) |
 
@@ -182,10 +182,11 @@ List payment groups. Results are paginated by default.
 ```json
 {
   "success": true,
-  "page": 1,
-  "limit": 20,
   "count": 1,
   "totalPages": 1,
+  "hasMore": false,
+  "page": 1,
+  "limit": 20,
   "groups": [
     {
       "uid": "merchant-uid-123",
@@ -202,6 +203,22 @@ List payment groups. Results are paginated by default.
 }
 ```
 
+**Response with `includeTotal=false` — 200 OK**
+
+```json
+{
+  "success": true,
+  "hasMore": true,
+  "page": 1,
+  "limit": 20,
+  "groups": [ ... ]
+}
+```
+
+> **Notes:**
+> - Global search (`q` / `search`) and group-name prefix search are **not supported** — use the exact `uid`, `groupId`, or `status` filters.
+> - `hasMore` is `true` when the current page is full (`groups.length === limit`), useful for "load more" pagination.
+> - When `includeTotal=false`, `count` and `totalPages` are omitted from the response for speed.
 **Group Fields**
 
 | Field         | Type   | Remarks                                        |
