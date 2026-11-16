@@ -10,6 +10,7 @@ This document covers the **complete Admin API** of the RRPay backend, including:
 
 1. **Admin Authentication** — register, login, JWT usage (`src/routes/adminAuth.js`, `src/controllers/adminAuthController.js`, `src/middleware/requireAdmin.js`)
 2. **Admin Group Management** — list groups, update groups (`src/routes/admin.js`, `src/controllers/adminGroupController.js`)
+3. **Admin Payin Management** — search/list payins, view details, approve payins (`src/routes/admin.js`, `src/controllers/adminPayinController.js`)
 
 - Base path: `/admin`
 - Protected endpoints require an **admin JWT** obtained from `POST /admin/auth/login`.
@@ -234,14 +235,164 @@ Update an existing payment group (status, remark, exchange rate, group name).
 
 ---
 
+## Admin API — Payin Management
+
+### `GET /admin/payins`
+
+Search and list payins with filters and pagination.
+
+**Auth:** Required (Bearer token)
+
+**Query Parameters** (all optional)
+
+| Parameter | Type | Remarks |
+| :-------- | :--- | :------ |
+| q | String | General search across `payOrderNo`, `outTradeNo`, `uid`, `upiId`, `payURL`, `merNo`, `utrCode`, `payState`, and numeric `groupId` |
+| groupId | Number | Filter by Telegram/group ID |
+| orderId / payOrderNo | String | Filter by pay order number |
+| outTradeNo | String | Filter by merchant out trade number |
+| uid | String | Filter by group UID |
+| upi / upiId | String | Filter by UPI/VPA (contains, case-insensitive) |
+| amount | String | Filter by exact amount (`deeplinkAmount` or `totalAmount`) |
+| status | String | `pending` \| `success` \| `failed` \| `expired` |
+| payUrl / payURL | String | Filter by pay URL (contains, case-insensitive) |
+| payState | String | Provider pay state code |
+| currencyCode | String | Currency code |
+| payType | String | Payment type |
+| merNo | String | Merchant number |
+| createdFrom / from | Date/String | Created at >= value (`YYYY-MM-DD` or ISO datetime) |
+| createdTo / to | Date/String | Created at <= value (`YYYY-MM-DD` treated as end-of-day) |
+| updatedFrom | Date/String | Updated at >= value |
+| updatedTo | Date/String | Updated at <= value |
+| page | Number | Page number (default: `1`) |
+| limit | Number | Page size (default: `20`, max: `200`) |
+
+**Response — 200 OK**
+
+```json
+{
+  "success": true,
+  "page": 1,
+  "limit": 20,
+  "total": 1,
+  "totalPages": 1,
+  "payins": [
+    {
+      "_id": "664f1f77bcf86cd799439011",
+      "payOrderNo": "PO123",
+      "outTradeNo": "PI...",
+      "merNo": "M123",
+      "uid": "82120",
+      "groupId": -5526650022,
+      "upiId": "merchant@bank",
+      "totalAmount": "100.00",
+      "deeplinkAmount": "100.00",
+      "currencyCode": "INR",
+      "payType": "UPI",
+      "status": "pending",
+      "payState": null,
+      "payURL": "https://...",
+      "utrCode": null,
+      "paidAt": null,
+      "createdAt": "2026-11-16T10:00:00.000Z",
+      "updatedAt": "2026-11-16T10:00:00.000Z",
+      "group": {
+        "_id": "...",
+        "uid": "82120",
+        "groupId": -5526650022,
+        "groupName": "test",
+        "status": "active",
+        "exchangeRate": null
+      }
+    }
+  ]
+}
+```
+
+> Notes: `payins` includes stored payin fields (e.g. `notifyUrl`, `payViewUrl`, `rawRequest`, `rawResponse`, etc.) plus populated `group` summary when linked.
+
+---
+
+### `GET /admin/payins/:id`
+
+Get a single payin by MongoDB `_id` or `payOrderNo`.
+
+**Auth:** Required (Bearer token)
+
+**Response — 200 OK**
+
+```json
+{
+  "success": true,
+  "payin": { }
+}
+```
+
+**Errors**
+
+| Status | `success` | `msg` |
+| :----- | :-------- | :---- |
+| 404 | false | `Payin not found` |
+
+---
+
+### `PATCH /admin/payins/:id/approve`
+
+Manually approve a payin (admin action). Sets status to `success`, sets `paidAt` if missing, and credits the linked group's balance/transaction once (idempotent).
+
+**Auth:** Required (Bearer token)
+
+**Path Parameters**
+
+| Parameter | Type | Remarks |
+| :-------- | :--- | :------ |
+| id | String | MongoDB `_id` or `payOrderNo` |
+
+**Request Body** (`Content-Type: application/json`) — optional
+
+| Parameter | Type | Required | Remarks |
+| :-------- | :--- | :------- | :------ |
+| utrCode | String | No | UTR/reference code to store on approval |
+
+**Response — 200 OK**
+
+```json
+{
+  "success": true,
+  "msg": "Payin approved",
+  "payin": { }
+}
+```
+
+If already successful:
+
+```json
+{
+  "success": true,
+  "msg": "Payin already approved",
+  "payin": { }
+}
+```
+
+**Errors**
+
+| Status | `success` | `msg` |
+| :----- | :-------- | :---- |
+| 404 | false | `Payin not found` |
+
+---
+
 ## Summary of Admin Endpoints
 
-| Method   | URL                        | Auth | Description                 |
-| :------- | :------------------------- | :--- | :-------------------------- |
-| POST     | `/admin/auth/register`    | No   | Register a user account     |
-| POST     | `/admin/auth/login`       | No   | Admin login → returns JWT  |
-| GET      | `/admin/groups`           | Yes  | List all groups            |
-| PATCH    | `/admin/groups/:id`       | Yes  | Update a group             |
+| Method   | URL                           | Auth | Description                                  |
+| :------- | :---------------------------- | :--- | :------------------------------------------- |
+| POST     | `/admin/auth/register`       | No   | Register a user account                      |
+| POST     | `/admin/auth/login`          | No   | Admin login → returns JWT                   |
+| GET      | `/admin/groups`              | Yes  | List all groups                              |
+| PATCH    | `/admin/groups/:id`          | Yes  | Update a group                               |
+| GET      | `/admin/payins`              | Yes  | Search/list payins (filters + pagination)    |
+| GET      | `/admin/payins/:id`          | Yes  | Get payin details                            |
+| PATCH    | `/admin/payins/:id/approve`  | Yes  | Approve payin (admin action)                 |
 
 ---
 
