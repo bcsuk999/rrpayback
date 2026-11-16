@@ -28,14 +28,18 @@ app.use(
 );
 
 // Belt-and-suspenders: answer any OPTIONS preflight before the router.
-app.options('*', (req, res) => {
-  res.set({
-    'Access-Control-Allow-Origin': allowedOrigins.includes(req.headers.origin) ? req.headers.origin : '*',
-    'Access-Control-Allow-Methods': 'GET,POST,PATCH,PUT,DELETE,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type,Authorization,Accept,Origin',
-    'Access-Control-Max-Age': 86400,
-  });
-  return res.sendStatus(204);
+// (Express 5 no longer supports bare '*' route wildcards, so use middleware.)
+app.use((req, res, next) => {
+  if (req.method === 'OPTIONS') {
+    res.set({
+      'Access-Control-Allow-Origin': allowedOrigins.includes(req.headers.origin) ? req.headers.origin : '*',
+      'Access-Control-Allow-Methods': 'GET,POST,PATCH,PUT,DELETE,OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type,Authorization,Accept,Origin',
+      'Access-Control-Max-Age': 86400,
+    });
+    return res.sendStatus(204);
+  }
+  return next();
 });
 
 app.use(express.json());
