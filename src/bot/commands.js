@@ -118,6 +118,26 @@ async function handleOrder(ctx, config) {
   const amount = args[0];
   if (!amount) return reply(ctx, 'Usage: /d &lt;amount&gt; (e.g. /d 100.00)');
 
+  // Send processing message first, then edit with result
+  let processingMsg = null;
+  try {
+    processingMsg = await reply(ctx, '⏳ Request processing...');
+  } catch (_) {
+    // reply() already logs; continue without processing message
+  }
+
+  const editOrSend = async (msgText, options) => {
+    const opts = options ?? { parse_mode: 'HTML' };
+    if (processingMsg?.message_id) {
+      try {
+        return await ctx.api.editMessageText(chat.id, processingMsg.message_id, msgText, opts);
+      } catch (err) {
+        log.warn({ event: 'bot.deposit.edit_failed', ...ctxMeta(ctx), error: err?.message, response: err?.response?.body || err?.description }, 'failed to edit processing message');
+      }
+    }
+    return reply(ctx, msgText, opts);
+  };
+
   try {
     const port = process.env.PORT || 4000;
     const url = `http://localhost:${port}/payin/order`;
@@ -160,7 +180,7 @@ async function handleOrder(ctx, config) {
           totalAmount: data.totalAmount || null,
           hasPayURL: Boolean(data?.payURL || data?.payUrl),
         }, 'deposit order missing deeplink upi/amount; not sending slip');
-        return reply(ctx, '❌ UPI ID not available yet. Please try again.');
+        return editOrSend('❌ UPI ID not available yet. Please try again.');
       }
 
       const deposit = buildDepositReply({
@@ -169,19 +189,13 @@ async function handleOrder(ctx, config) {
         upiId,
         expiresAt: new Date(),
       });
-      const sentMsg = await ctx.api
-        .sendMessage(ctx.chat.id, deposit.text, deposit.options)
-        .catch((err) => {
-          log.error({ event: 'bot.deposit.send_failed', ...ctxMeta(ctx), orderNo, err, response: err?.response?.body || err?.description }, 'failed to send deposit message');
-          return null;
-        });
-      if (orderNo && sentMsg?.message_id) rememberDepositMessage(orderNo, sentMsg.message_id);
-      if (!sentMsg) {
-        // fallback via reply helper so user still gets something
-        return reply(ctx, deposit.text, deposit.options);
+      const sentMsg = await editOrSend(deposit.text, deposit.options);
+      if (orderNo && (sentMsg?.message_id || processingMsg?.message_id)) {
+        rememberDepositMessage(orderNo, sentMsg?.message_id || processingMsg.message_id);
       }
       return sentMsg;
     }
+
     log.warn({
       event: 'bot.deposit.rejected',
       ...ctxMeta(ctx),
@@ -191,10 +205,10 @@ async function handleOrder(ctx, config) {
       error: data?.error,
       responseKeys: data && typeof data === 'object' ? Object.keys(data) : null,
     }, 'deposit order rejected');
-    return reply(ctx, '❌ RRPay rejected: ' + escapeHtml(data.stateInfo || data.error || data?.raw?.slice?.(0, 120) || 'unknown'));
+    return editOrSend('❌ RRPay rejected: ' + escapeHtml(data.stateInfo || data.error || data?.raw?.slice?.(0, 120) || 'unknown'));
   } catch (err) {
     log.error({ event: 'bot.deposit.error', ...ctxMeta(ctx), amount, err }, 'deposit command failed');
-    return reply(ctx, '❌ Error: ' + escapeHtml(err.message));
+    return editOrSend('❌ Error: ' + escapeHtml(err.message));
   }
 }
 
