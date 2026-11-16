@@ -53,5 +53,15 @@ const payinSchema = new mongoose.Schema(
 // A merchant's outTradeNo must be unique.
 payinSchema.index({ merNo: 1, outTradeNo: 1 }, { unique: true });
 payinSchema.index({ merNo: 1, createdAt: -1 });
+payinSchema.index({ outTradeNo: 1 });
+payinSchema.index({ upiId: 1 });
+payinSchema.index({ payURL: 1 });
+payinSchema.index({ utrCode: 1 });
+payinSchema.index({ payState: 1 });
+payinSchema.index({ totalAmount: 1 });
+payinSchema.index({ createdAt: -1, _id: -1 });
+payinSchema.index({ updatedAt: -1 });
+payinSchema.index({ status: 1, createdAt: -1, _id: -1 });
+payinSchema.index({ groupId: 1, createdAt: -1, _id: -1 });
 
 export default mongoose.model('Payin', payinSchema);

@@ -28,8 +28,12 @@ async function findPayin(identifier) {
 }
 
 export const listPayins = asyncHandler(async (req, res) => {
-  const page = Math.max(1, Number(req.query.page) || 1);
-  const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 20));
+  const requestedPage = Number(req.query.page);
+  const page = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+  const requestedLimit = Number(req.query.limit);
+  const limit = Number.isSafeInteger(requestedLimit) && requestedLimit > 0
+    ? Math.min(200, requestedLimit)
+    : 20;
   const skip = (page - 1) * limit;
 
   const filter = {};
@@ -39,16 +43,15 @@ export const listPayins = asyncHandler(async (req, res) => {
   if (req.query.q) {
     const q = String(req.query.q).trim();
     if (q) {
-      const rx = new RegExp(escapeRegex(q), 'i');
       const or = [
-        { payOrderNo: rx },
-        { outTradeNo: rx },
-        { uid: rx },
-        { upiId: rx },
-        { payURL: rx },
-        { merNo: rx },
-        { utrCode: rx },
-        { payState: rx },
+        { payOrderNo: q },
+        { outTradeNo: q },
+        { uid: q },
+        { upiId: { $regex: `^${escapeRegex(q)}` } },
+        { payURL: { $regex: `^${escapeRegex(q)}` } },
+        { merNo: q },
+        { utrCode: q },
+        { payState: q },
       ];
       const n = Number(q);
       if (Number.isFinite(n)) or.push({ groupId: n });
@@ -65,11 +68,11 @@ export const listPayins = asyncHandler(async (req, res) => {
   if (req.query.outTradeNo) filter.outTradeNo = String(req.query.outTradeNo).trim();
   if (req.query.uid) filter.uid = String(req.query.uid).trim();
   if (req.query.upi || req.query.upiId) {
-    filter.upiId = new RegExp(escapeRegex(String(req.query.upi || req.query.upiId).trim()), 'i');
+    filter.upiId = { $regex: `^${escapeRegex(String(req.query.upi || req.query.upiId).trim())}` };
   }
   if (req.query.status) filter.status = String(req.query.status).trim();
   if (req.query.payUrl || req.query.payURL) {
-    filter.payURL = new RegExp(escapeRegex(String(req.query.payUrl || req.query.payURL).trim()), 'i');
+    filter.payURL = { $regex: `^${escapeRegex(String(req.query.payUrl || req.query.payURL).trim())}` };
   }
   if (req.query.payState) filter.payState = String(req.query.payState).trim();
   if (req.query.currencyCode) filter.currencyCode = String(req.query.currencyCode).trim();
@@ -82,7 +85,7 @@ export const listPayins = asyncHandler(async (req, res) => {
     and.push({
       $or: [
         { deeplinkAmount: amt },
-        { $expr: { $eq: [{ $toString: '$totalAmount' }, amt] } },
+        { totalAmount: amt },
       ],
     });
   }
@@ -107,7 +110,8 @@ export const listPayins = asyncHandler(async (req, res) => {
 
   const [payins, total] = await Promise.all([
     Payin.find(filter)
-      .sort({ createdAt: -1 })
+      .select('payOrderNo outTradeNo merNo uid groupId upiId totalAmount deeplinkAmount currencyCode payType status payState payURL utrCode paidAt createdAt updatedAt')
+      .sort({ createdAt: -1, _id: -1 })
       .skip(skip)
       .limit(limit)
       .populate('group', 'uid groupId groupName status exchangeRate')

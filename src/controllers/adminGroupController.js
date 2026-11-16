@@ -1,9 +1,55 @@
 import Group from '../models/Group.js';
 import asyncHandler from '../utils/asyncHandler.js';
 
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 export const listGroups = asyncHandler(async (req, res) => {
-  const groups = await Group.find().sort({ createdAt: -1 }).lean();
-  return res.json({ success: true, count: groups.length, groups });
+  const requestedPage = Number(req.query.page);
+  const page = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+  const requestedLimit = Number(req.query.limit);
+  const limit = Number.isSafeInteger(requestedLimit) && requestedLimit > 0
+    ? Math.min(100, requestedLimit)
+    : 20;
+  const skip = (page - 1) * limit;
+  const filter = {};
+
+  if (req.query.uid) filter.uid = String(req.query.uid).trim();
+  if (req.query.groupId !== undefined && req.query.groupId !== '') {
+    const groupId = Number(req.query.groupId);
+    if (Number.isFinite(groupId)) filter.groupId = groupId;
+  }
+  if (req.query.status) filter.status = String(req.query.status).trim();
+
+  const search = String(req.query.search || req.query.q || '').trim();
+  if (search) {
+    const matches = [
+      { uid: search },
+      { groupName: { $regex: `^${escapeRegex(search)}` } },
+    ];
+    const groupId = Number(search);
+    if (Number.isFinite(groupId)) matches.push({ groupId });
+    filter.$or = matches;
+  }
+
+  const [groups, count] = await Promise.all([
+    Group.find(filter)
+      .select('uid groupId groupName exchangeRate status remark balance createdAt updatedAt')
+      .sort({ createdAt: -1, _id: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+    Group.countDocuments(filter),
+  ]);
+  return res.json({
+    success: true,
+    count,
+    page,
+    limit,
+    totalPages: Math.ceil(count / limit),
+    groups,
+  });
 });
 
 export const updateGroup = asyncHandler(async (req, res) => {

@@ -139,7 +139,7 @@ If the token is missing / malformed → `401 Unauthorized`. If invalid / expired
 
 ### `GET /admin/groups`
 
-List all payment groups.
+List payment groups. Results are paginated by default.
 
 **Auth:** Required (Bearer token)
 
@@ -148,12 +148,26 @@ List all payment groups.
 - Method: `GET`
 - URL: `/admin/groups`
 
+**Query Parameters** (all optional)
+
+| Parameter | Type | Remarks |
+| :-------- | :--- | :------ |
+| search / q | String | Exact UID or group ID; case-sensitive group-name prefix |
+| uid | String | Exact group UID |
+| groupId | Number | Exact Telegram/group ID |
+| status | String | `active` \| `suspended` \| `banned` |
+| page | Number | Page number (default: `1`) |
+| limit | Number | Page size (default: `20`, max: `100`) |
+
 **Response — 200 OK**
 
 ```json
 {
   "success": true,
+  "page": 1,
+  "limit": 20,
   "count": 1,
+  "totalPages": 1,
   "groups": [
     {
       "uid": "merchant-uid-123",
@@ -247,15 +261,15 @@ Search and list payins with filters and pagination.
 
 | Parameter | Type | Remarks |
 | :-------- | :--- | :------ |
-| q | String | General search across `payOrderNo`, `outTradeNo`, `uid`, `upiId`, `payURL`, `merNo`, `utrCode`, `payState`, and numeric `groupId` |
+| q | String | Exact match across identifiers/codes; case-sensitive prefix match for `upiId` and `payURL`, plus exact numeric `groupId` |
 | groupId | Number | Filter by Telegram/group ID |
 | orderId / payOrderNo | String | Filter by pay order number |
 | outTradeNo | String | Filter by merchant out trade number |
 | uid | String | Filter by group UID |
-| upi / upiId | String | Filter by UPI/VPA (contains, case-insensitive) |
+| upi / upiId | String | Filter by UPI/VPA prefix (case-sensitive) |
 | amount | String | Filter by exact amount (`deeplinkAmount` or `totalAmount`) |
 | status | String | `pending` \| `success` \| `failed` \| `expired` |
-| payUrl / payURL | String | Filter by pay URL (contains, case-insensitive) |
+| payUrl / payURL | String | Filter by pay URL prefix (case-sensitive) |
 | payState | String | Provider pay state code |
 | currencyCode | String | Currency code |
 | payType | String | Payment type |

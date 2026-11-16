@@ -18,4 +18,8 @@ const groupSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+groupSchema.index({ groupName: 1, createdAt: -1, _id: -1 });
+groupSchema.index({ createdAt: -1, _id: -1 });
+groupSchema.index({ status: 1, createdAt: -1, _id: -1 });
+
 export default mongoose.model('Group', groupSchema);
