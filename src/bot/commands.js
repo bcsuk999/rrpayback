@@ -377,8 +377,12 @@ async function reply(ctx, text, options) {
       },
       "failed to send telegram reply",
     );
-    // Fallback: if HTML parsing failed, try sending as plain text to avoid silent drops
-    if (opts.parse_mode === "HTML") {
+    const description = String(err?.description || err?.message || "");
+    const htmlParseFailed =
+      /can't parse entities|unsupported (?:start|end) tag|can't find end of the entity/i.test(
+        description,
+      );
+    if (opts.parse_mode === "HTML" && htmlParseFailed) {
       try {
         return await ctx.reply(String(text).replace(/<[^>]+>/g, ""), {});
       } catch (err2) {

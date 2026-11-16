@@ -9,6 +9,8 @@ let bot = null;
 let config = null;
 let running = false;
 let lastError = null;
+const seenUpdateIds = new Set();
+const MAX_SEEN_UPDATE_IDS = 10000;
 
 export function getClient() {
   return bot;
@@ -41,6 +43,25 @@ export async function startBot() {
 
     // Structured update logging for production tracing
     bot.use(async (ctx, next) => {
+      const updateId = ctx?.update?.update_id;
+      if (Number.isSafeInteger(updateId)) {
+        if (seenUpdateIds.has(updateId)) {
+          console.warn(JSON.stringify({
+            ts: new Date().toISOString(),
+            level: 'warn',
+            event: 'bot.update.duplicate_ignored',
+            updateId,
+            chatId: ctx?.chat?.id,
+            text: ctx?.message?.text,
+          }));
+          return;
+        }
+        seenUpdateIds.add(updateId);
+        if (seenUpdateIds.size > MAX_SEEN_UPDATE_IDS) {
+          seenUpdateIds.delete(seenUpdateIds.values().next().value);
+        }
+      }
+
       const meta = {
         ts: new Date().toISOString(),
         level: 'info',
