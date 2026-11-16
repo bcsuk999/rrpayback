@@ -1,6 +1,8 @@
 import { isOwner } from './config.js';
 import { buildDepositReply, DEPOSIT_EXPIRY_MINUTES } from './deposit.js';
 import logger from '../utils/logger.js';
+import Payin from '../models/Payin.js';
+import Group from '../models/Group.js';
 
 const log = logger.child({ scope: 'bot' });
 
@@ -71,6 +73,31 @@ function isGroupChat(ctx) {
   return t === 'group' || t === 'supergroup';
 }
 
+function fmtDate(value) {
+  if (!value) return '-';
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  try {
+    return d.toLocaleString('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    }) + ' IST';
+  } catch {
+    return d.toISOString();
+  }
+}
+
+function fmtAmount(value) {
+  if (value == null) return '-';
+  if (typeof value === 'object' && typeof value.toString === 'function') return value.toString();
+  return String(value);
+}
+
 async function reportCommandError(ctx, config, details = {}, fallbackToGroup = '⚠️ Something went wrong. Owner has been notified.') {
   log.warn({ event: 'bot.command.error_reported', ...ctxMeta(ctx), ...details }, 'command error reported');
   if (isGroupChat(ctx)) {
@@ -116,6 +143,7 @@ const REG_LINE = '/reg     - Register a group (run it inside the group)';
 const INFO_LINE = '/info <message> - Notify all active registered groups';
 const PL_LINE = '/pl <t|y|w|m|DD/MM/YY> <cost> - Group profit/loss report';
 const MD_LINE = '/md, /me - Toggle maintenance mode (owner only)';
+const Q_LINE = '/q <order id> - Get full order details (owner DM only)';
 
 // Telegram message ids of the deposit slips sent by /d, keyed by payOrderNo (for edit-in-place).
 const depositMsgIds = new Map();
@@ -129,9 +157,9 @@ function forgetDepositMessage(orderNo) {
   if (orderNo) depositMsgIds.delete(String(orderNo));
 }
 
-function helpText({ isOwner = false } = {}) {
+function helpText({ owner = false } = {}) {
   const lines = ['Commands:'];
-  if (isOwner) lines.push(REG_LINE, INFO_LINE, PL_LINE, MD_LINE);
+  if (owner) lines.push(REG_LINE, INFO_LINE, PL_LINE, MD_LINE, Q_LINE);
   lines.push(...GROUP_LINES);
   return lines.join('\n');
 }
@@ -325,6 +353,71 @@ async function handleOrder(ctx, config) {
   }
 }
 
+async function handleQ(ctx, config) {
+  if (!isOwner(ctx?.from, config)) return reply(ctx, 'Only the owner can use /q.');
+  if (ctx?.chat?.type !== 'private') return reply(ctx, 'Run /q in a private chat with the bot.');
+
+  const text = (ctx.message?.text || '').trim();
+  const args = text.split(/\s+/).slice(1);
+  const orderNo = args[0];
+  if (!orderNo) return reply(ctx, 'Usage: /q &lt;orderId&gt;');
+
+  try {
+    log.info({ event: 'bot.q.request', ...ctxMeta(ctx), orderNo }, 'q command requested');
+    const payin = await Payin.findOne({ payOrderNo: orderNo }).lean();
+    if (!payin) {
+      log.warn({ event: 'bot.q.not_found', ...ctxMeta(ctx), orderNo }, 'order not found for q');
+      return reply(ctx, 'Order not found: <code>' + escapeHtml(orderNo) + '</code>');
+    }
+
+    let groupUid = '-';
+    let groupId = payin.groupId ?? '-';
+    try {
+      if (payin.group) {
+        const g = await Group.findById(payin.group).lean();
+        if (g) {
+          groupUid = g.uid || groupUid;
+          if (groupId === '-' || groupId == null) groupId = g.groupId ?? groupId;
+        }
+      } else if (payin.groupId != null) {
+        const g = await Group.findOne({ groupId: payin.groupId }).lean();
+        if (g) groupUid = g.uid || groupUid;
+      }
+    } catch (_) {
+      // best-effort group resolution
+    }
+    if (groupUid === '-' && payin.uid) groupUid = payin.uid;
+
+    const amount = payin.deeplinkAmount || fmtAmount(payin.totalAmount);
+    const upi = payin.upiId || '-';
+    const createdAt = fmtDate(payin.createdAt);
+    const successAt = payin.status === 'success' ? fmtDate(payin.paidAt || payin.updatedAt) : '-';
+    const balanceAfter = '-'; // not tracked on Payin
+    const payUrl = payin.payURL || '-';
+    const status = payin.status || '-';
+
+    const lines = [
+      '<b>Order Details</b>',
+      'Group UID: <code>' + escapeHtml(groupUid) + '</code>',
+      'Group ID: <code>' + escapeHtml(String(groupId ?? '-')) + '</code>',
+      'Order ID: <code>' + escapeHtml(payin.payOrderNo || orderNo) + '</code>',
+      'Status: ' + escapeHtml(status),
+      'UPI: <code>' + escapeHtml(upi) + '</code>',
+      'Amount: <code>' + escapeHtml(String(amount ?? '-')) + '</code>',
+      'Created at: ' + escapeHtml(createdAt),
+      'Success at: ' + escapeHtml(successAt),
+      'Balance after: ' + escapeHtml(balanceAfter),
+      'Pay URL: ' + (payUrl !== '-' ? escapeHtml(payUrl) : '-'),
+    ];
+
+    log.info({ event: 'bot.q.success', ...ctxMeta(ctx), orderNo: payin.payOrderNo, status }, 'q command served');
+    return reply(ctx, lines.join('\n'), { parse_mode: 'HTML', disable_web_page_preview: true });
+  } catch (err) {
+    log.error({ event: 'bot.q.error', ...ctxMeta(ctx), orderNo, err }, 'q command failed');
+    return reply(ctx, '❌ Error: ' + escapeHtml(err?.message || 'Unknown error'));
+  }
+}
+
 async function handleStatus(ctx) {
   const text = (ctx.message?.text || '').trim();
   const args = text.split(/\s+/).slice(1);
@@ -452,7 +545,8 @@ function register(bot, config) {
 
   bot.command('help', (ctx) => safeHandler('help', ctx, () => {
     log.info({ event: 'bot.command', ...ctxMeta(ctx), command: 'help' }, 'command received');
-    return reply(ctx, HELP);
+    const ownerDm = isOwner(ctx.from, config) && ctx.chat?.type === 'private';
+    return reply(ctx, helpText({ owner: ownerDm }));
   }));
 
   bot.command('status', async (ctx) => safeHandler('status', ctx, async () => {
@@ -466,7 +560,13 @@ function register(bot, config) {
 
   bot.command('start', (ctx) => safeHandler('start', ctx, () => {
     log.info({ event: 'bot.command', ...ctxMeta(ctx), command: 'start' }, 'command received');
-    return reply(ctx, HELP);
+    const ownerDm = isOwner(ctx.from, config) && ctx.chat?.type === 'private';
+    return reply(ctx, helpText({ owner: ownerDm }));
+  }));
+
+  bot.command('q', async (ctx) => safeHandler('q', ctx, async () => {
+    log.info({ event: 'bot.command', ...ctxMeta(ctx), command: 'q' }, 'command received');
+    return handleQ(ctx, config);
   }));
 
   bot.command('reg', async (ctx) => {
@@ -506,4 +606,4 @@ function register(bot, config) {
   return true;
 }
 
-export { register, handleOrder, handleStatus, HELP, reply, getRegisteredGroup, fetchGroupById };
+export { register, handleOrder, handleStatus, handleQ, HELP, reply, getRegisteredGroup, fetchGroupById };
