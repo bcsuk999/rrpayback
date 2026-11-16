@@ -17,6 +17,24 @@ This document covers the **complete Admin API** of the RRPay backend, including:
 - Token must be sent as: `Authorization: Bearer <token>`
 - Guarded by the `requireAdmin` middleware.
 
+## Public utility endpoint
+
+### `GET /ip`
+
+Returns the backend's public egress IPv4 and IPv6 addresses as observed by external IP lookup services. No authentication is required.
+
+**Response — 200 OK** (both lookups succeeded)
+
+```json
+{
+  "success": true,
+  "ipv4": "203.0.113.10",
+  "ipv6": "2001:db8::1"
+}
+```
+
+If either address family is unavailable, the endpoint returns `502` with the available address, `null` for the unavailable address, and an `errors` entry identifying the failed lookup.
+
 ---
 
 ## Admin Authentication API

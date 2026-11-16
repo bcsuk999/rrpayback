@@ -6,6 +6,7 @@ import payRouter from './routes/pay.js';
 import groupsRouter from './routes/groups.js';
 import adminAuthRouter from './routes/adminAuth.js';
 import adminRouter from './routes/admin.js';
+import { getServerIp } from './controllers/ipController.js';
 
 const app = express();
 
@@ -43,6 +44,8 @@ app.get('/health', (req, res) => {
     uptime: process.uptime(),
   });
 });
+
+app.get('/ip', getServerIp);
 
 app.use('/payin', payinRouter);
 app.use('/pay', payRouter);
