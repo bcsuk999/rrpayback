@@ -121,7 +121,7 @@ async function handleOrder(ctx, config) {
   // Send processing message first, then edit with result
   let processingMsg = null;
   try {
-    processingMsg = await reply(ctx, '⏳ Request processing...');
+    processingMsg = await reply(ctx, 'Request processing...');
   } catch (_) {
     // reply() already logs; continue without processing message
   }
@@ -130,7 +130,12 @@ async function handleOrder(ctx, config) {
     const opts = options ?? { parse_mode: 'HTML' };
     if (processingMsg?.message_id) {
       try {
-        return await ctx.api.editMessageText(chat.id, processingMsg.message_id, msgText, opts);
+        return await ctx.api.editMessageText({
+          chat_id: chat.id,
+          message_id: processingMsg.message_id,
+          text: msgText,
+          ...opts,
+        });
       } catch (err) {
         log.warn({ event: 'bot.deposit.edit_failed', ...ctxMeta(ctx), error: err?.message, response: err?.response?.body || err?.description }, 'failed to edit processing message');
       }
@@ -254,7 +259,12 @@ async function handleStatus(ctx) {
       const messageId = depositMsgIds.get(String(orderNo));
       if (messageId) {
         try {
-          await ctx.api.editMessageText(ctx.chat.id, messageId, deposit.text, deposit.options);
+          await ctx.api.editMessageText({
+            chat_id: ctx.chat.id,
+            message_id: messageId,
+            text: deposit.text,
+            ...deposit.options,
+          });
           log.info({ event: 'bot.status.edited', ...ctxMeta(ctx), orderNo, status }, 'deposit message updated');
           return;
         } catch (err) {
@@ -275,7 +285,12 @@ async function handleStatus(ctx) {
       const messageId = depositMsgIds.get(String(orderNo));
       if (messageId) {
         try {
-          await ctx.api.editMessageText(ctx.chat.id, messageId, deposit.text, deposit.options);
+          await ctx.api.editMessageText({
+            chat_id: ctx.chat.id,
+            message_id: messageId,
+            text: deposit.text,
+            ...deposit.options,
+          });
           log.info({ event: 'bot.status.edited', ...ctxMeta(ctx), orderNo, status }, 'deposit message updated');
           return;
         } catch (err) {
