@@ -9,25 +9,35 @@ import adminRouter from './routes/admin.js';
 
 const app = express();
 
-// CORS — allow the admin frontend origin(s).
-// Additional origins can be granted via the CORS_ORIGIN env var (comma-separated).
-const allowedOrigins = [
-  'https://rrpayadmin.netlify.app',
-  ...String(process.env.CORS_ORIGIN ?? '')
-    .split(',')
-    .map((origin) => origin.trim())
-    .filter(Boolean),
-];
+// Comprehensive CORS: allow the production frontend origin, handle OPTIONS preflight.
+const allowedOrigins = ['https://rrpayadmin.netlify.app', 'http://localhost:5173'];
 
-const corsOptions = {
-  origin: allowedOrigins, // array -> origin is reflected when it is allow-listed
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With'],
-  credentials: true,
-  maxAge: 86400, // cache successful preflights for 24h
-};
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error(`Origin ${origin} not allowed by CORS`));
+      }
+    },
+    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin'],
+    credentials: false,
+  })
+);
 
-app.use(cors(corsOptions));
+// Belt-and-suspenders: answer any OPTIONS preflight before the router.
+app.options('*', (req, res) => {
+  res.set({
+    'Access-Control-Allow-Origin': allowedOrigins.includes(req.headers.origin) ? req.headers.origin : '*',
+    'Access-Control-Allow-Methods': 'GET,POST,PATCH,PUT,DELETE,OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type,Authorization,Accept,Origin',
+    'Access-Control-Max-Age': 86400,
+  });
+  return res.sendStatus(204);
+});
+
 app.use(express.json());
 
 app.get('/health', (req, res) => {
