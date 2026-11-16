@@ -1,6 +1,36 @@
 import { isOwner } from './config.js';
 import { buildDepositReply, DEPOSIT_EXPIRY_MINUTES } from './deposit.js';
 
+function log(level, event, meta = {}) {
+  const entry = {
+    ts: new Date().toISOString(),
+    level,
+    event,
+    ...meta,
+  };
+  const line = JSON.stringify(entry);
+  if (level === 'error') console.error(line);
+  else if (level === 'warn') console.warn(line);
+  else console.log(line);
+}
+
+function ctxMeta(ctx) {
+  return {
+    updateId: ctx?.update?.update_id,
+    chatId: ctx?.chat?.id,
+    chatType: ctx?.chat?.type,
+    fromId: ctx?.from?.id,
+    text: ctx?.message?.text,
+  };
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 async function fetchGroupById(chatId) {
   try {
     const port = process.env.PORT || 4000;
@@ -58,10 +88,41 @@ function helpText({ isOwner = false } = {}) {
 const HELP = helpText();
 
 async function reply(ctx, text, options) {
+  const opts = options ?? { parse_mode: 'HTML' };
   try {
-    return await ctx.reply(text, options ?? { parse_mode: 'HTML' });
+    return await ctx.reply(text, opts);
   } catch (err) {
-    console.error('[bot] send failed:', err?.message);
+    log('error', 'bot.reply_failed', {
+      ...ctxMeta(ctx),
+      error: err?.message,
+      stack: err?.stack,
+      response: err?.response?.body || err?.description,
+      textPreview: String(text).slice(0, 200),
+    });
+    // Fallback: if HTML parsing failed, try sending as plain text to avoid silent drops
+    if (opts.parse_mode === 'HTML') {
+      try {
+        return await ctx.reply(String(text).replace(/<[^>]+>/g, ''), {});
+      } catch (err2) {
+        log('error', 'bot.reply_fallback_failed', { ...ctxMeta(ctx), error: err2?.message });
+      }
+    }
+  }
+}
+
+async function safeHandler(name, ctx, fn) {
+  try {
+    return await fn();
+  } catch (err) {
+    log('error', 'bot.handler_error', {
+      handler: name,
+      ...ctxMeta(ctx),
+      error: err?.message,
+      stack: err?.stack,
+    });
+    try {
+      await reply(ctx, '❌ Internal error. Please try again later.');
+    } catch (_) {}
   }
 }
 
@@ -70,16 +131,20 @@ async function handleOrder(ctx, config) {
   const text = (ctx.message?.text || '').trim();
   const args = text.split(/\s+/).slice(1);
   const amount = args[0];
-  if (!amount) return reply(ctx, 'Usage: /d <amount> (e.g. /d 100.00)');
+  if (!amount) return reply(ctx, 'Usage: /d &lt;amount&gt; (e.g. /d 100.00)');
 
   try {
     const port = process.env.PORT || 4000;
-    const res = await fetch(`http://localhost:${port}/payin/order`, {
+    const url = `http://localhost:${port}/payin/order`;
+    log('info', 'bot.deposit.request', { ...ctxMeta(ctx), amount, url });
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ amount, groupId: chat?.id, uid: ctx.groupUid }),
     });
     const data = await res.json().catch(() => ({}));
+    log('info', 'bot.deposit.response', { ...ctxMeta(ctx), status: res.status, resultCode: data?.resultCode, stateInfo: data?.stateInfo, payOrderNo: data?.payOrderNo });
+
     if (data.resultCode === '0000') {
       const orderNo = data.payOrderNo || '';
       const deposit = buildDepositReply({
@@ -90,13 +155,21 @@ async function handleOrder(ctx, config) {
       });
       const sentMsg = await ctx.api
         .sendMessage(ctx.chat.id, deposit.text, deposit.options)
-        .catch(() => null);
+        .catch((err) => {
+          log('error', 'bot.deposit.send_failed', { ...ctxMeta(ctx), orderNo, error: err?.message, response: err?.response?.body || err?.description });
+          return null;
+        });
       if (orderNo && sentMsg?.message_id) rememberDepositMessage(orderNo, sentMsg.message_id);
+      if (!sentMsg) {
+        // fallback via reply helper so user still gets something
+        return reply(ctx, deposit.text, deposit.options);
+      }
       return sentMsg;
     }
-    return reply(ctx, '❌ RRPay rejected: ' + (data.stateInfo || data.error || 'unknown'));
+    return reply(ctx, '❌ RRPay rejected: ' + escapeHtml(data.stateInfo || data.error || 'unknown'));
   } catch (err) {
-    return reply(ctx, '❌ Error: ' + err.message);
+    log('error', 'bot.deposit.error', { ...ctxMeta(ctx), amount, error: err?.message, stack: err?.stack });
+    return reply(ctx, '❌ Error: ' + escapeHtml(err.message));
   }
 }
 
@@ -104,16 +177,21 @@ async function handleStatus(ctx) {
   const text = (ctx.message?.text || '').trim();
   const args = text.split(/\s+/).slice(1);
   const orderNo = args[0];
-  if (!orderNo) return reply(ctx, 'Usage: /status <payOrderNo>');
+  if (!orderNo) return reply(ctx, 'Usage: /status &lt;payOrderNo&gt;');
 
   try {
     const port = process.env.PORT || 4000;
-    const res = await fetch(`http://localhost:${port}/pay/${orderNo}`);
-    if (!res.ok) return reply(ctx, 'Order not found: ' + orderNo);
+    log('info', 'bot.status.request', { ...ctxMeta(ctx), orderNo });
+    const res = await fetch(`http://localhost:${port}/pay/${encodeURIComponent(orderNo)}`);
+    if (!res.ok) {
+      log('warn', 'bot.status.not_found', { ...ctxMeta(ctx), orderNo, status: res.status });
+      return reply(ctx, 'Order not found: <code>' + escapeHtml(orderNo) + '</code>');
+    }
     const data = await res.json();
     const orderId = data.payOrderNo || orderNo;
     const amount = data.totalAmount || '0';
     const status = String(data.status || '').toLowerCase();
+    log('info', 'bot.status.response', { ...ctxMeta(ctx), orderNo, status, amount });
 
     if (status === 'success') {
       const deposit = buildDepositReply({
@@ -123,13 +201,14 @@ async function handleStatus(ctx) {
         expiresAt: new Date(),
         completed: true,
       });
-      const messageId = depositMsgIds.get(orderNo);
+      const messageId = depositMsgIds.get(String(orderNo));
       if (messageId) {
         try {
           await ctx.api.editMessageText(ctx.chat.id, messageId, deposit.text, deposit.options);
+          log('info', 'bot.status.edited', { ...ctxMeta(ctx), orderNo, status });
           return;
-        } catch (_) {
-          // fall through to a normal send if edit fails
+        } catch (err) {
+          log('warn', 'bot.status.edit_failed', { ...ctxMeta(ctx), orderNo, error: err?.message });
         }
       }
       return reply(ctx, deposit.text, deposit.options);
@@ -143,27 +222,29 @@ async function handleStatus(ctx) {
         expiresAt: new Date(),
         expired: true,
       });
-      const messageId = depositMsgIds.get(orderNo);
+      const messageId = depositMsgIds.get(String(orderNo));
       if (messageId) {
         try {
           await ctx.api.editMessageText(ctx.chat.id, messageId, deposit.text, deposit.options);
+          log('info', 'bot.status.edited', { ...ctxMeta(ctx), orderNo, status });
           return;
-        } catch (_) {
-          // fall through to a normal send if edit fails
+        } catch (err) {
+          log('warn', 'bot.status.edit_failed', { ...ctxMeta(ctx), orderNo, error: err?.message });
         }
       }
       return reply(ctx, deposit.text, deposit.options);
     }
 
     const lines = [
-      'Order: <code>' + (data.payOrderNo || orderNo) + '</code>',
-      'Status: ' + (data.status || '-'),
-      'Amount: ' + (data.totalAmount || '-') + ' ' + (data.currencyCode || ''),
-      'Type: ' + (data.payType || ''),
+      'Order: <code>' + escapeHtml(data.payOrderNo || orderNo) + '</code>',
+      'Status: ' + escapeHtml(data.status || '-'),
+      'Amount: ' + escapeHtml(String(data.totalAmount ?? '-')) + ' ' + escapeHtml(data.currencyCode || ''),
+      'Type: ' + escapeHtml(data.payType || ''),
     ];
     return reply(ctx, lines.join('\n'));
   } catch (err) {
-    return reply(ctx, '❌ Error: ' + err.message);
+    log('error', 'bot.status.error', { ...ctxMeta(ctx), orderNo, error: err?.message, stack: err?.stack });
+    return reply(ctx, '❌ Error: ' + escapeHtml(err.message));
   }
 }
 
@@ -184,29 +265,37 @@ function register(bot, config) {
     );
   });
 
-  bot.command('d', async (ctx) => {
+  bot.command('d', async (ctx) => safeHandler('d', ctx, async () => {
+    log('info', 'bot.command', { ...ctxMeta(ctx), command: 'd' });
     const chat = ctx.chat || {};
     if (chat.type === 'private') {
       return reply(ctx, 'Run /d inside a registered group. Deposits belong to a group.');
     }
     const group = await getRegisteredGroup(chat.id);
     if (!group) return reply(ctx, 'This group is not registered. Owner must run /reg first.');
-    if (group.status && group.status !== 'active') return reply(ctx, 'Group is ' + group.status + '. Contact support.');
+    if (group.status && group.status !== 'active') return reply(ctx, 'Group is ' + escapeHtml(group.status) + '. Contact support.');
     ctx.groupUid = group.uid;
     return handleOrder(ctx, config);
-  });
+  }));
 
-  bot.command('help', (ctx) => reply(ctx, HELP(false)));
+  bot.command('help', (ctx) => safeHandler('help', ctx, () => {
+    log('info', 'bot.command', { ...ctxMeta(ctx), command: 'help' });
+    return reply(ctx, HELP);
+  }));
 
-  bot.command('status', async (ctx) => {
+  bot.command('status', async (ctx) => safeHandler('status', ctx, async () => {
+    log('info', 'bot.command', { ...ctxMeta(ctx), command: 'status' });
     const chat = ctx.chat || {};
     if (chat.type === 'private') return reply(ctx, 'Run /status inside a registered group.');
     const group = await getRegisteredGroup(chat.id);
     if (!group) return reply(ctx, 'This group is not registered. Owner must run /reg first.');
     return handleStatus(ctx);
-  });
+  }));
 
-  bot.command('start', (ctx) => reply(ctx, HELP(false)));
+  bot.command('start', (ctx) => safeHandler('start', ctx, () => {
+    log('info', 'bot.command', { ...ctxMeta(ctx), command: 'start' });
+    return reply(ctx, HELP);
+  }));
 
   bot.command('reg', async (ctx) => {
     const from = ctx.from || {};

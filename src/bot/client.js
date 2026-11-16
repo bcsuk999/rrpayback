@@ -38,9 +38,48 @@ export async function startBot() {
 
   try {
     bot = new Bot(config.token);
+
+    // Structured update logging for production tracing
+    bot.use(async (ctx, next) => {
+      const meta = {
+        ts: new Date().toISOString(),
+        level: 'info',
+        event: 'bot.update',
+        updateId: ctx?.update?.update_id,
+        chatId: ctx?.chat?.id,
+        chatType: ctx?.chat?.type,
+        fromId: ctx?.from?.id,
+        text: ctx?.message?.text,
+      };
+      console.log(JSON.stringify(meta));
+      return next();
+    });
+
     register(bot, config);
 
-    bot.startPolling().catch((err) => console.error('[bot] polling loop error:', err?.message));
+    if (typeof bot.catch === 'function') {
+      bot.catch((err, ctx) => {
+        console.error(JSON.stringify({
+          ts: new Date().toISOString(),
+          level: 'error',
+          event: 'bot.unhandled_update_error',
+          updateId: ctx?.update?.update_id,
+          chatId: ctx?.chat?.id,
+          fromId: ctx?.from?.id,
+          text: ctx?.message?.text,
+          error: err?.message,
+          stack: err?.stack,
+        }));
+      });
+    }
+
+    bot.startPolling().catch((err) => console.error(JSON.stringify({
+      ts: new Date().toISOString(),
+      level: 'error',
+      event: 'bot.polling_error',
+      error: err?.message,
+      stack: err?.stack,
+    })));
     const me = await bot.api.getMe();
     running = true;
     lastError = null;
