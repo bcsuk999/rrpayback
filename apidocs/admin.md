@@ -543,27 +543,28 @@ If already successful:
 
 ### `GET /admin/transactions`
 
-Search a group/user's transaction ledger by UID / group ID with date filters and pagination.
+Search a group/user's transaction ledger. **At least one of `uid` or `groupId` is required** — requests with neither are rejected with `400`.
 
 **Auth:** Required (Bearer token)
 
-**Query Parameters** (all optional)
+**Query Parameters**
 
-| Parameter | Type | Remarks |
-| :-------- | :--- | :------ |
-| uid | String | Exact group UID |
-| groupId | Number | Exact Telegram/group ID |
-| type | String | `credit` \| `debit` |
-| coType | String | `payin` \| `payout` \| `bonus` \| `adjustment` \| `other` |
-| payin | String | MongoDB `_id` of a payin |
-| date | Date/String | Single day filter (`YYYY-MM-DD`), applied to `createdAt` |
-| createdFrom / from | Date/String | Created at >= value (`YYYY-MM-DD` or ISO datetime) |
-| createdTo / to | Date/String | Created at <= value (`YYYY-MM-DD` treated as end-of-day) |
-| amountFrom / minAmount | Number/String | Minimum amount (inclusive) |
-| amountTo / maxAmount | Number/String | Maximum amount (inclusive) |
-| includeTotal | Boolean | `true` (default): include `total` + `totalPages`. `false`: skip the count query (faster) |
-| page | Number | Page number (default: `1`) |
-| limit | Number | Page size (default: `20`, max: `200`) |
+| Parameter | Type | Required | Remarks |
+| :-------- | :--- | :------- | :------ |
+| uid | String | One of uid/groupId | Exact group UID |
+| groupId | Number | One of uid/groupId | Exact Telegram/group ID |
+| transactionNo | String | No | Exact transaction reference (e.g. `TRN16112026000066794`) |
+| type | String | No | `credit` \| `debit` |
+| coType | String | No | `payin` \| `payout` \| `bonus` \| `adjustment` \| `other` |
+| payin | String | No | MongoDB `_id` of a payin |
+| date | Date/String | No | Single day filter (`YYYY-MM-DD`), applied to `createdAt` |
+| createdFrom / from | Date/String | No | Created at >= value (`YYYY-MM-DD` or ISO datetime) |
+| createdTo / to | Date/String | No | Created at <= value (`YYYY-MM-DD` treated as end-of-day) |
+| amountFrom / minAmount | Number/String | No | Minimum amount (inclusive) |
+| amountTo / maxAmount | Number/String | No | Maximum amount (inclusive) |
+| includeTotal | Boolean | No | `true` (default): include `total` + `totalPages`. `false`: skip the count query (faster) |
+| page | Number | No | Page number (default: `1`) |
+| limit | Number | No | Page size (default: `20`, max: `200`) |
 
 **Response — 200 OK**
 
@@ -577,17 +578,12 @@ Search a group/user's transaction ledger by UID / group ID with date filters and
   "hasMore": false,
   "transactions": [
     {
-      "_id": "6650aabbccddeeff00112233",
+      "transactionNo": "TRN16112026000066794",
       "uid": "49526",
       "groupId": -5526650022,
       "amount": "100.00",
       "type": "credit",
       "coType": "payin",
-      "payin": {
-        "_id": "664f1f77bcf86cd799439011",
-        "payOrderNo": "OR16112026000066794",
-        "status": "success"
-      },
       "balanceAfter": "100.00",
       "remark": "Payin OR16112026000066794 approved",
       "createdAt": "2026-11-16T10:05:00.000Z",
@@ -609,22 +605,28 @@ Search a group/user's transaction ledger by UID / group ID with date filters and
 }
 ```
 
+**Errors**
+
+| Status | `success` | `msg` |
+| :----- | :-------- | :---- |
+| 400 | false | `uid or groupId is required` |
+
 **Transaction Fields**
 
 | Field | Type | Remarks |
 | :---- | :--- | :------ |
-| _id | String | MongoDB `_id` of the transaction |
+| transactionNo | String \| null | Transaction reference: `TRN` + `ddmmyyyy` + 9-digit time-of-day seconds (e.g. `TRN16112026000066794`); `null` for older records |
 | uid | String | Group UID |
 | groupId | Number | Telegram/group ID |
 | amount | String (Decimal128) | Transaction amount |
 | type | String | `credit` \| `debit` |
 | coType | String | `payin` \| `payout` \| `bonus` \| `adjustment` \| `other` |
-| payin | Object \| null | Linked payin summary: `{ _id, payOrderNo, status }` |
 | balanceAfter | String \| null | Group balance after this transaction (`null` for older records created before this field existed) |
 | remark | String | Human-readable note (e.g. `Payin <payOrderNo> approved`) |
 | createdAt / updatedAt | String | ISO timestamps |
 
 > **Notes:**
+> - `_id` and the linked `payin` details are **not** returned in the response.
 > - Results are sorted newest first (`createdAt`, then `_id`).
 > - `balanceAfter` is captured at transaction creation time; transactions created before this field was added may return `null`.
 > - `hasMore` is `true` when the current page is full (`transactions.length === limit`).
@@ -669,7 +671,7 @@ Manually create a `credit` or `debit` transaction for any group/user by UID. Upd
     "balance": "200.50"
   },
   "transaction": {
-    "_id": "6650aabbccddeeff00112244",
+    "transactionNo": "TRN16112026000066795",
     "uid": "49526",
     "groupId": -5526650022,
     "amount": "100.50",
@@ -684,6 +686,7 @@ Manually create a `credit` or `debit` transaction for any group/user by UID. Upd
 ```
 
 **Behavior**
+- Each transaction gets a reference `transactionNo`: `TRN` + `ddmmyyyy` + 9-digit time-of-day seconds (e.g. `TRN16112026000066795`).
 - `credit` adds the amount to the group balance.
 - `debit` subtracts the amount; the debit is rejected if the balance is insufficient (no negative balance).
 - The balance update is atomic, and the transaction stores `coType: "adjustment"` plus the `balanceAfter` snapshot.
@@ -694,6 +697,7 @@ Manually create a `credit` or `debit` transaction for any group/user by UID. Upd
   Type: CREDIT🔻
   Amount: ₹100.50
   Balance: ₹200.50
+  Trx ID: TRN16112026000066795
   Remark: Manual bonus
   By: 919876543210
   ```

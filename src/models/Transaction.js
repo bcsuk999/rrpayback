@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 
 const transactionSchema = new mongoose.Schema(
   {
+    transactionNo: { type: String, unique: true, sparse: true, index: true },
     uid: { type: String, required: true, index: true },
     groupId: { type: Number, required: true, index: true },
     amount: { type: mongoose.Schema.Types.Decimal128, required: true },

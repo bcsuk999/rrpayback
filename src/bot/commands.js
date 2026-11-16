@@ -448,7 +448,7 @@ async function notifyPayinSuccess({ orderId, amount, groupId }) {
   }
 }
 
-async function notifyManualTransaction({ groupId, uid, type, amount, balanceAfter, remark, adminMobile }) {
+async function notifyManualTransaction({ groupId, uid, type, amount, balanceAfter, remark, adminMobile, transactionNo }) {
   if (!groupId) {
     log.warn(
       { event: "bot.manual_tx.skipped", uid, reason: "missing_group_id" },
@@ -471,6 +471,7 @@ async function notifyManualTransaction({ groupId, uid, type, amount, balanceAfte
     `Type: ${isDebit ? "DEBIT🔺" : "CREDIT🔻"}`,
     `Amount: ${formatInr(amount)}`,
     balanceAfter !== undefined && balanceAfter !== null ? `Balance: ${formatInr(balanceAfter)}` : null,
+    transactionNo ? `Trx ID: <code>${escapeHtml(transactionNo)}</code>` : null,
     remark ? `Remark: ${escapeHtml(remark)}` : null,
     adminMobile ? `By: ${escapeHtml(adminMobile)}` : null,
   ].filter(Boolean);

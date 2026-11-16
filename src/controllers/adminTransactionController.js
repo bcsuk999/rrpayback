@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import Transaction from '../models/Transaction.js';
 import Group from '../models/Group.js';
 import asyncHandler from '../utils/asyncHandler.js';
+import { nextTransactionNo } from '../utils/orderNo.js';
 import { notifyManualTransaction } from '../bot/commands.js';
 
 const Decimal128 = mongoose.Types.Decimal128;
@@ -37,11 +38,16 @@ export const listTransactions = asyncHandler(async (req, res) => {
 
   const filter = {};
 
-  if (req.query.uid) filter.uid = String(req.query.uid).trim();
-  if (req.query.groupId !== undefined && req.query.groupId !== '') {
-    const n = Number(req.query.groupId);
-    if (Number.isFinite(n)) filter.groupId = n;
+  const uidFilter = req.query.uid ? String(req.query.uid).trim() : '';
+  const groupIdRaw = req.query.groupId;
+  const hasGroupId = groupIdRaw !== undefined && groupIdRaw !== '' && Number.isFinite(Number(groupIdRaw));
+  if (!uidFilter && !hasGroupId) {
+    return res.status(400).json({ success: false, msg: 'uid or groupId is required' });
   }
+
+  if (uidFilter) filter.uid = uidFilter;
+  if (hasGroupId) filter.groupId = Number(groupIdRaw);
+  if (req.query.transactionNo) filter.transactionNo = String(req.query.transactionNo).trim();
   if (req.query.type) {
     const type = String(req.query.type).trim();
     if (['credit', 'debit'].includes(type)) filter.type = type;
@@ -73,11 +79,10 @@ export const listTransactions = asyncHandler(async (req, res) => {
   const includeTotal = String(req.query.includeTotal ?? 'true').toLowerCase() !== 'false';
 
   const transactionsQuery = Transaction.find(filter)
-    .select('uid groupId amount type coType payin remark balanceAfter createdAt updatedAt')
+    .select('transactionNo uid groupId amount type coType remark balanceAfter createdAt updatedAt -_id')
     .sort({ createdAt: -1, _id: -1 })
     .skip(skip)
     .limit(limit)
-    .populate('payin', 'payOrderNo status')
     .lean();
 
   const [transactions, total] = await Promise.all([
@@ -146,6 +151,7 @@ export const createTransaction = asyncHandler(async (req, res) => {
   const note = String(remark ?? '').trim() || `Manual ${normalizedType} by admin`;
 
   const transaction = await Transaction.create({
+    transactionNo: await nextTransactionNo(),
     uid: updatedGroup.uid,
     groupId: updatedGroup.groupId,
     amount,
@@ -164,11 +170,25 @@ export const createTransaction = asyncHandler(async (req, res) => {
       balanceAfter: updatedGroup.balance?.toString?.(),
       remark: note,
       adminMobile: req.admin?.mobile,
+      transactionNo: transaction.transactionNo,
     });
   } catch (err) {
     // Notification must not fail the transaction; it is already recorded.
     console.error('notifyManualTransaction failed:', err?.message || err);
   }
+
+  const tx = {
+    transactionNo: transaction.transactionNo,
+    uid: transaction.uid,
+    groupId: transaction.groupId,
+    amount: transaction.amount,
+    type: transaction.type,
+    coType: transaction.coType,
+    balanceAfter: transaction.balanceAfter,
+    remark: transaction.remark,
+    createdAt: transaction.createdAt,
+    updatedAt: transaction.updatedAt,
+  };
 
   return res.status(201).json({
     success: true,
@@ -178,6 +198,6 @@ export const createTransaction = asyncHandler(async (req, res) => {
       groupId: updatedGroup.groupId,
       balance: updatedGroup.balance,
     },
-    transaction,
+    transaction: tx,
   });
 });

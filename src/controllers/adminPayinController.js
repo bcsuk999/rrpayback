@@ -2,6 +2,7 @@ import Payin from '../models/Payin.js';
 import Group from '../models/Group.js';
 import Transaction from '../models/Transaction.js';
 import asyncHandler from '../utils/asyncHandler.js';
+import { nextTransactionNo } from '../utils/orderNo.js';
 import { notifyPayinSuccess } from '../bot/commands.js';
 
 function parseDate(value, endOfDay = false) {
@@ -166,6 +167,7 @@ export const approvePayin = asyncHandler(async (req, res) => {
 
         try {
           await Transaction.create({
+            transactionNo: await nextTransactionNo(),
             uid: group.uid,
             groupId: group.groupId,
             amount: claimed.totalAmount,

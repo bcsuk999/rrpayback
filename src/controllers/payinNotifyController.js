@@ -4,6 +4,7 @@ import Group from '../models/Group.js';
 import Transaction from '../models/Transaction.js';
 import { createSign, verifySign } from '../utils/signature.js';
 import asyncHandler from '../utils/asyncHandler.js';
+import { nextTransactionNo } from '../utils/orderNo.js';
 import { notifyPayinSuccess } from '../bot/commands.js';
 import logger from '../utils/logger.js';
 
@@ -65,6 +66,7 @@ export const handlePayinNotify = asyncHandler(async (req, res) => {
         await group.save();
 
         await Transaction.create({
+          transactionNo: await nextTransactionNo(),
           uid: group.uid,
           groupId: group.groupId,
           amount: payin.totalAmount,

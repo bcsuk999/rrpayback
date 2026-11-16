@@ -1,39 +1,55 @@
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 
-let lastSecondKey = '';
-let inSecondCounter = 0;
+const state = {
+  secondKey: '',
+  counters: new Map(),
+};
 
 /**
- * OR + ddmmyyyy (IST) + 9-digit time-of-day in seconds, zero-padded.
+ * <prefix> + ddmmyyyy (IST) + 9-digit time-of-day in seconds, zero-padded.
  * Example: OR16112026000046994 (16-11-2026, 18:33:14 IST).
  *
- * The 4 leading zeros of the 9-digit part act as an in-second counter so that
- * multiple orders created within the same second stay unique while keeping the
- * same 19-character format (e.g. OR16112026000146994 for the 2nd in that second).
+ * The 4 leading zeros of the 9-digit part act as a per-prefix in-second counter
+ * so multiple IDs created within the same second stay unique while keeping the
+ * same shape (e.g. OR16112026000146994 for the 2nd OR in that second).
  */
-export async function nextPayOrderNo(date = new Date()) {
+function nextTimeBasedId(prefix, date = new Date()) {
   const ist = new Date(date.getTime() + IST_OFFSET_MS);
   const dd = String(ist.getUTCDate()).padStart(2, '0');
   const mm = String(ist.getUTCMonth() + 1).padStart(2, '0');
   const yyyy = ist.getUTCFullYear();
 
   let secondsOfDay = ist.getUTCHours() * 3600 + ist.getUTCMinutes() * 60 + ist.getUTCSeconds();
-  const secondKey = `${yyyy}${mm}${dd}:${secondsOfDay}`;
+  let secondKey = `${yyyy}${mm}${dd}:${secondsOfDay}`;
 
-  if (secondKey === lastSecondKey) {
-    inSecondCounter += 1;
-  } else {
-    lastSecondKey = secondKey;
-    inSecondCounter = 0;
+  if (secondKey !== state.secondKey) {
+    state.secondKey = secondKey;
+    state.counters.clear();
   }
 
-  // Extremely unlikely (>9999 orders in one second): move to the next second.
-  if (inSecondCounter > 9999) {
+  let counter = state.counters.get(prefix) ?? 0;
+  state.counters.set(prefix, counter + 1);
+
+  // Extremely unlikely (>9999 IDs per second per prefix): move to the next second.
+  if (counter > 9999) {
     secondsOfDay += 1;
-    inSecondCounter = 0;
-    lastSecondKey = `${yyyy}${mm}${dd}:${secondsOfDay}`;
+    counter = 0;
+    secondKey = `${yyyy}${mm}${dd}:${secondsOfDay}`;
+    state.secondKey = secondKey;
+    state.counters.clear();
+    state.counters.set(prefix, 1);
   }
 
-  const timePart = `${String(inSecondCounter).padStart(4, '0')}${String(secondsOfDay).padStart(5, '0')}`;
-  return `OR${dd}${mm}${yyyy}${timePart}`;
+  const timePart = `${String(counter).padStart(4, '0')}${String(secondsOfDay).padStart(5, '0')}`;
+  return `${prefix}${dd}${mm}${yyyy}${timePart}`;
+}
+
+/** Payment order number: OR + ddmmyyyy + 9-digit time-of-day seconds. */
+export async function nextPayOrderNo(date = new Date()) {
+  return nextTimeBasedId('OR', date);
+}
+
+/** Transaction reference: TRN + ddmmyyyy + 9-digit time-of-day seconds. */
+export async function nextTransactionNo(date = new Date()) {
+  return nextTimeBasedId('TRN', date);
 }
