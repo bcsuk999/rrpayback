@@ -58,6 +58,14 @@ app.use('/groups', groupsRouter);
 app.use('/admin/auth', adminAuthRouter);
 app.use('/admin', adminRouter);
 
+// Also expose the same API under /api/* for frontend compatibility
+// (e.g. the React app calls POST /api/admin/auth/login).
+app.use('/api/payin', payinRouter);
+app.use('/api/pay', payRouter);
+app.use('/api/groups', groupsRouter);
+app.use('/api/admin/auth', adminAuthRouter);
+app.use('/api/admin', adminRouter);
+
 app.get('/', (req, res) => {
   res.json({ status: 'ok', message: 'RRPAY backend running' });
 });
