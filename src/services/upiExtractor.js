@@ -6,8 +6,22 @@ import logger from '../utils/logger.js';
 const log = logger.child({ scope: 'upi.extractor' });
 
 const SIGN_SALT = '5f3b2d9a7c1e4f8b0d6a7e9f3c2b1a0d';
+const EPET_HY_KEY = 'pinternal2022jfhuif';
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
+function hySign(obj) {
+  const t = { ...(obj || {}) };
+  const keys = Object.keys(t).sort();
+  let s = '';
+  for (const k of keys) {
+    const v = t[k];
+    if (v !== undefined && v !== null && v !== '') s += `${k}=${v}&`;
+  }
+  s += `key=${EPET_HY_KEY}`;
+  t.sign = crypto.createHash('md5').update(s).digest('hex').toUpperCase();
+  return t;
+}
 
 export function parseUpiDeeplink(deeplink) {
   if (!deeplink || typeof deeplink !== 'string') return null;
@@ -132,6 +146,88 @@ async function extractFromWalletPay(payUrl) {
   };
 }
 
+async function extractFromEpetPay(payUrl) {
+  const u = new URL(payUrl);
+  const payOrderNo = u.searchParams.get('payOrderNo') || '';
+  const sign = u.searchParams.get('sign') || '';
+  if (!payOrderNo) throw new Error('missing_pay_order_no');
+
+  const base = u.origin;
+  const headers = {
+    'content-type': 'application/json',
+    'accept': 'application/json, text/plain, */*',
+    'user-agent': USER_AGENT,
+    'origin': base,
+    'referer': payUrl,
+  };
+
+  // 1) Order detail (amount, status, qrcodeContent)
+  const detailRes = await fetch(`${base}/repay-api/apiMixDsOrderDetail`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ payOrderNo, sign }),
+  });
+  const detail = await detailRes.json().catch(() => ({}));
+  if (detail.code !== 0 && detail.code !== 200) {
+    throw new Error(detail.message || detail.msg || `epet_detail_error_${detail.code ?? detailRes.status}`);
+  }
+
+  let amount = detail.amount ?? detail.payAmount ?? null;
+  if (amount != null) amount = String(amount).trim();
+  if (amount === '' || amount === 'null' || amount === 'undefined') amount = null;
+
+  let upiId = null;
+  let deeplink = null;
+  const qrcodeContent = detail.qrcodeContent || detail.qrcodeIntentUrl || null;
+  if (qrcodeContent && typeof qrcodeContent === 'string' && /^upi:\/\//i.test(qrcodeContent.trim())) {
+    const parsed = parseUpiDeeplink(qrcodeContent.trim());
+    if (parsed?.upiId) upiId = parsed.upiId;
+    if (!amount && parsed?.amount) amount = parsed.amount;
+    deeplink = qrcodeContent.trim();
+  }
+
+  // 2) Try available UPI/intents (may fail for expired orders)
+  if (!upiId) {
+    try {
+      const upiRes = await fetch(`${base}/repay-api/apiMixDsGetAvailableUpiAll`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(hySign({ payOrderNo })),
+      });
+      const upiJson = await upiRes.json().catch(() => ({}));
+      if (upiJson && (upiJson.code === 0 || upiJson.success === true)) {
+        const intent = upiJson.qrcodeIntentUrl || upiJson.intentUrl || null;
+        const copyVpa = upiJson.copyVpa || upiJson.vpa || upiJson.upi || null;
+        if (intent && typeof intent === 'string' && /^upi:\/\//i.test(intent.trim())) {
+          const parsed = parseUpiDeeplink(intent.trim());
+          if (!upiId && parsed?.upiId) upiId = parsed.upiId;
+          if (!amount && parsed?.amount) amount = parsed.amount;
+          if (!deeplink) deeplink = intent.trim();
+        }
+        if (!upiId && copyVpa && typeof copyVpa === 'string' && copyVpa.includes('@')) {
+          upiId = copyVpa.trim();
+        }
+      }
+    } catch (_) {
+      // best-effort; detail response may still be sufficient
+    }
+  }
+
+  if (!upiId) throw new Error('upi_id_missing_in_response');
+  if (!amount) throw new Error('amount_missing_in_response');
+
+  if (!deeplink) {
+    deeplink = `upi://pay?pa=${encodeURIComponent(upiId)}&am=${encodeURIComponent(amount)}&cu=INR`;
+  }
+
+  return {
+    deeplink,
+    upiId,
+    amount,
+    payeeName: detail.payeeName || detail.name || null,
+  };
+}
+
 async function decodeQrImage(imageUrl) {
   let buffer;
   if (/^data:/i.test(imageUrl)) {
@@ -159,19 +255,26 @@ export async function extractUpiFromPayUrl(payUrl, { timeoutMs = 15000 } = {}) {
     let parsed;
     if (params.get('order_id') && params.get('nonce')) {
       parsed = await extractFromQuickPay(payUrl);
+    } else if (params.get('payOrderNo') && (params.get('sign') || /epethub|l1mix|onepage/i.test(u.host + u.pathname))) {
+      parsed = await extractFromEpetPay(payUrl);
     } else if (params.get('orderNo') || params.get('orderno') || /\/payment/i.test(u.pathname)) {
       parsed = await extractFromWalletPay(payUrl);
     } else {
-      // Try quickPay first, then wallet as fallback
-      try {
-        parsed = await extractFromQuickPay(payUrl);
-      } catch (e1) {
+      // Try quickPay first, then epet/wallet as fallbacks
+      const attempts = [() => extractFromQuickPay(payUrl)];
+      if (params.get('payOrderNo')) attempts.push(() => extractFromEpetPay(payUrl));
+      attempts.push(() => extractFromWalletPay(payUrl));
+      let firstErr;
+      for (const attempt of attempts) {
         try {
-          parsed = await extractFromWalletPay(payUrl);
-        } catch (e2) {
-          throw e1; // report primary error
+          parsed = await attempt();
+          firstErr = null;
+          break;
+        } catch (e) {
+          if (!firstErr) firstErr = e;
         }
       }
+      if (!parsed) throw firstErr || new Error('extract_failed');
     }
 
     log.info({
