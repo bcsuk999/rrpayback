@@ -1,18 +1,8 @@
 import { isOwner } from './config.js';
 import { buildDepositReply, DEPOSIT_EXPIRY_MINUTES } from './deposit.js';
+import logger from '../utils/logger.js';
 
-function log(level, event, meta = {}) {
-  const entry = {
-    ts: new Date().toISOString(),
-    level,
-    event,
-    ...meta,
-  };
-  const line = JSON.stringify(entry);
-  if (level === 'error') console.error(line);
-  else if (level === 'warn') console.warn(line);
-  else console.log(line);
-}
+const log = logger.child({ scope: 'bot' });
 
 function ctxMeta(ctx) {
   return {
@@ -92,19 +82,19 @@ async function reply(ctx, text, options) {
   try {
     return await ctx.reply(text, opts);
   } catch (err) {
-    log('error', 'bot.reply_failed', {
+    log.error({
+      event: 'bot.reply_failed',
       ...ctxMeta(ctx),
-      error: err?.message,
-      stack: err?.stack,
+      err,
       response: err?.response?.body || err?.description,
       textPreview: String(text).slice(0, 200),
-    });
+    }, 'failed to send telegram reply');
     // Fallback: if HTML parsing failed, try sending as plain text to avoid silent drops
     if (opts.parse_mode === 'HTML') {
       try {
         return await ctx.reply(String(text).replace(/<[^>]+>/g, ''), {});
       } catch (err2) {
-        log('error', 'bot.reply_fallback_failed', { ...ctxMeta(ctx), error: err2?.message });
+        log.error({ event: 'bot.reply_fallback_failed', ...ctxMeta(ctx), err: err2 }, 'failed to send plain-text fallback reply');
       }
     }
   }
@@ -114,12 +104,7 @@ async function safeHandler(name, ctx, fn) {
   try {
     return await fn();
   } catch (err) {
-    log('error', 'bot.handler_error', {
-      handler: name,
-      ...ctxMeta(ctx),
-      error: err?.message,
-      stack: err?.stack,
-    });
+    log.error({ event: 'bot.handler_error', handler: name, ...ctxMeta(ctx), err }, 'bot command handler failed');
     try {
       await reply(ctx, '❌ Internal error. Please try again later.');
     } catch (_) {}
@@ -136,17 +121,42 @@ async function handleOrder(ctx, config) {
   try {
     const port = process.env.PORT || 4000;
     const url = `http://localhost:${port}/payin/order`;
-    log('info', 'bot.deposit.request', { ...ctxMeta(ctx), amount, url });
+    log.info({ event: 'bot.deposit.request', ...ctxMeta(ctx), amount, url }, 'creating deposit order');
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ amount, groupId: chat?.id, uid: ctx.groupUid }),
     });
-    const data = await res.json().catch(() => ({}));
-    log('info', 'bot.deposit.response', { ...ctxMeta(ctx), status: res.status, resultCode: data?.resultCode, stateInfo: data?.stateInfo, payOrderNo: data?.payOrderNo });
+    const raw = await res.text();
+    let data = {};
+    try { data = raw ? JSON.parse(raw) : {}; } catch (_) { data = { _nonJson: true, raw: raw?.slice(0, 500) }; }
+    log.info({
+      event: 'bot.deposit.response',
+      ...ctxMeta(ctx),
+      httpStatus: res.status,
+      ok: res.ok,
+      resultCode: data?.resultCode,
+      stateInfo: data?.stateInfo,
+      payOrderNo: data?.payOrderNo,
+      upiId: data?.upiId || null,
+      hasPayURL: Boolean(data?.payURL || data?.payUrl),
+      hasPayParams: Boolean(data?.payParams),
+      responseKeys: data && typeof data === 'object' ? Object.keys(data) : null,
+    }, 'deposit order response received');
 
     if (data.resultCode === '0000') {
       const orderNo = data.payOrderNo || '';
+      if (!data.upiId) {
+        log.warn({
+          event: 'bot.deposit.upi_missing',
+          ...ctxMeta(ctx),
+          orderNo,
+          amount: data.totalAmount || amount,
+          hasPayURL: Boolean(data?.payURL || data?.payUrl),
+          hasPayParams: Boolean(data?.payParams),
+          responseKeys: data && typeof data === 'object' ? Object.keys(data) : null,
+        }, 'deposit created without upi id');
+      }
       const deposit = buildDepositReply({
         orderId: orderNo,
         amount: data.totalAmount || amount,
@@ -156,7 +166,7 @@ async function handleOrder(ctx, config) {
       const sentMsg = await ctx.api
         .sendMessage(ctx.chat.id, deposit.text, deposit.options)
         .catch((err) => {
-          log('error', 'bot.deposit.send_failed', { ...ctxMeta(ctx), orderNo, error: err?.message, response: err?.response?.body || err?.description });
+          log.error({ event: 'bot.deposit.send_failed', ...ctxMeta(ctx), orderNo, err, response: err?.response?.body || err?.description }, 'failed to send deposit message');
           return null;
         });
       if (orderNo && sentMsg?.message_id) rememberDepositMessage(orderNo, sentMsg.message_id);
@@ -166,9 +176,18 @@ async function handleOrder(ctx, config) {
       }
       return sentMsg;
     }
-    return reply(ctx, '❌ RRPay rejected: ' + escapeHtml(data.stateInfo || data.error || 'unknown'));
+    log.warn({
+      event: 'bot.deposit.rejected',
+      ...ctxMeta(ctx),
+      httpStatus: res.status,
+      resultCode: data?.resultCode,
+      stateInfo: data?.stateInfo,
+      error: data?.error,
+      responseKeys: data && typeof data === 'object' ? Object.keys(data) : null,
+    }, 'deposit order rejected');
+    return reply(ctx, '❌ RRPay rejected: ' + escapeHtml(data.stateInfo || data.error || data?.raw?.slice?.(0, 120) || 'unknown'));
   } catch (err) {
-    log('error', 'bot.deposit.error', { ...ctxMeta(ctx), amount, error: err?.message, stack: err?.stack });
+    log.error({ event: 'bot.deposit.error', ...ctxMeta(ctx), amount, err }, 'deposit command failed');
     return reply(ctx, '❌ Error: ' + escapeHtml(err.message));
   }
 }
@@ -181,17 +200,17 @@ async function handleStatus(ctx) {
 
   try {
     const port = process.env.PORT || 4000;
-    log('info', 'bot.status.request', { ...ctxMeta(ctx), orderNo });
+    log.info({ event: 'bot.status.request', ...ctxMeta(ctx), orderNo }, 'status check requested');
     const res = await fetch(`http://localhost:${port}/pay/${encodeURIComponent(orderNo)}`);
     if (!res.ok) {
-      log('warn', 'bot.status.not_found', { ...ctxMeta(ctx), orderNo, status: res.status });
+      log.warn({ event: 'bot.status.not_found', ...ctxMeta(ctx), orderNo, httpStatus: res.status }, 'order status not found');
       return reply(ctx, 'Order not found: <code>' + escapeHtml(orderNo) + '</code>');
     }
     const data = await res.json();
     const orderId = data.payOrderNo || orderNo;
     const amount = data.totalAmount || '0';
     const status = String(data.status || '').toLowerCase();
-    log('info', 'bot.status.response', { ...ctxMeta(ctx), orderNo, status, amount });
+    log.info({ event: 'bot.status.response', ...ctxMeta(ctx), orderNo, status, amount }, 'order status fetched');
 
     if (status === 'success') {
       const deposit = buildDepositReply({
@@ -205,10 +224,10 @@ async function handleStatus(ctx) {
       if (messageId) {
         try {
           await ctx.api.editMessageText(ctx.chat.id, messageId, deposit.text, deposit.options);
-          log('info', 'bot.status.edited', { ...ctxMeta(ctx), orderNo, status });
+          log.info({ event: 'bot.status.edited', ...ctxMeta(ctx), orderNo, status }, 'deposit message updated');
           return;
         } catch (err) {
-          log('warn', 'bot.status.edit_failed', { ...ctxMeta(ctx), orderNo, error: err?.message });
+          log.warn({ event: 'bot.status.edit_failed', ...ctxMeta(ctx), orderNo, err }, 'failed to edit deposit message');
         }
       }
       return reply(ctx, deposit.text, deposit.options);
@@ -226,10 +245,10 @@ async function handleStatus(ctx) {
       if (messageId) {
         try {
           await ctx.api.editMessageText(ctx.chat.id, messageId, deposit.text, deposit.options);
-          log('info', 'bot.status.edited', { ...ctxMeta(ctx), orderNo, status });
+          log.info({ event: 'bot.status.edited', ...ctxMeta(ctx), orderNo, status }, 'deposit message updated');
           return;
         } catch (err) {
-          log('warn', 'bot.status.edit_failed', { ...ctxMeta(ctx), orderNo, error: err?.message });
+          log.warn({ event: 'bot.status.edit_failed', ...ctxMeta(ctx), orderNo, err }, 'failed to edit deposit message');
         }
       }
       return reply(ctx, deposit.text, deposit.options);
@@ -243,7 +262,7 @@ async function handleStatus(ctx) {
     ];
     return reply(ctx, lines.join('\n'));
   } catch (err) {
-    log('error', 'bot.status.error', { ...ctxMeta(ctx), orderNo, error: err?.message, stack: err?.stack });
+    log.error({ event: 'bot.status.error', ...ctxMeta(ctx), orderNo, err }, 'status command failed');
     return reply(ctx, '❌ Error: ' + escapeHtml(err.message));
   }
 }
@@ -266,7 +285,7 @@ function register(bot, config) {
   });
 
   bot.command('d', async (ctx) => safeHandler('d', ctx, async () => {
-    log('info', 'bot.command', { ...ctxMeta(ctx), command: 'd' });
+    log.info({ event: 'bot.command', ...ctxMeta(ctx), command: 'd' }, 'command received');
     const chat = ctx.chat || {};
     if (chat.type === 'private') {
       return reply(ctx, 'Run /d inside a registered group. Deposits belong to a group.');
@@ -279,12 +298,12 @@ function register(bot, config) {
   }));
 
   bot.command('help', (ctx) => safeHandler('help', ctx, () => {
-    log('info', 'bot.command', { ...ctxMeta(ctx), command: 'help' });
+    log.info({ event: 'bot.command', ...ctxMeta(ctx), command: 'help' }, 'command received');
     return reply(ctx, HELP);
   }));
 
   bot.command('status', async (ctx) => safeHandler('status', ctx, async () => {
-    log('info', 'bot.command', { ...ctxMeta(ctx), command: 'status' });
+    log.info({ event: 'bot.command', ...ctxMeta(ctx), command: 'status' }, 'command received');
     const chat = ctx.chat || {};
     if (chat.type === 'private') return reply(ctx, 'Run /status inside a registered group.');
     const group = await getRegisteredGroup(chat.id);
@@ -293,7 +312,7 @@ function register(bot, config) {
   }));
 
   bot.command('start', (ctx) => safeHandler('start', ctx, () => {
-    log('info', 'bot.command', { ...ctxMeta(ctx), command: 'start' });
+    log.info({ event: 'bot.command', ...ctxMeta(ctx), command: 'start' }, 'command received');
     return reply(ctx, HELP);
   }));
 
