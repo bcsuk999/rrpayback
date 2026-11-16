@@ -48,13 +48,24 @@ export const registerGroup = asyncHandler(async (req, res) => {
     newUid = genUid();
   }
 
-  group = await Group.create({
-    uid: newUid,
-    groupId: gid,
-    groupName: groupName || '',
-    status: 'active',
-    exchangeRate: null,
-  });
+  try {
+    group = await Group.create({
+      uid: newUid,
+      groupId: gid,
+      groupName: groupName || '',
+      status: 'active',
+      exchangeRate: null,
+    });
+  } catch (err) {
+    // Handle race: if another request created the group concurrently, return existing one
+    if (err?.code === 11000) {
+      const existing = await Group.findOne({ groupId: gid });
+      if (existing) {
+        return res.json({ _id: existing._id, uid: existing.uid, groupId: existing.groupId, groupName: existing.groupName, status: existing.status });
+      }
+    }
+    throw err;
+  }
 
   return res.status(201).json({ _id: group._id, uid: group.uid, groupId: group.groupId, groupName: group.groupName, status: group.status });
 });
