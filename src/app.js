@@ -9,18 +9,10 @@ import adminRouter from './routes/admin.js';
 
 const app = express();
 
-// Comprehensive CORS: allow the production frontend origin, handle OPTIONS preflight.
-const allowedOrigins = ['https://rrpayadmin.netlify.app', 'https://rrpayadmin.vercel.app', 'http://localhost:5173'];
-
+// CORS: allow all origins.
 app.use(
   cors({
-    origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error(`Origin ${origin} not allowed by CORS`));
-      }
-    },
+    origin: true,
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin'],
     credentials: false,
@@ -32,7 +24,7 @@ app.use(
 app.use((req, res, next) => {
   if (req.method === 'OPTIONS') {
     res.set({
-      'Access-Control-Allow-Origin': allowedOrigins.includes(req.headers.origin) ? req.headers.origin : '*',
+      'Access-Control-Allow-Origin': req.headers.origin || '*',
       'Access-Control-Allow-Methods': 'GET,POST,PATCH,PUT,DELETE,OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type,Authorization,Accept,Origin',
       'Access-Control-Max-Age': 86400,
