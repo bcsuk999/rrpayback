@@ -1,10 +1,14 @@
-import { isOwner } from './config.js';
-import { buildDepositReply, buildSuccessNotice, DEPOSIT_EXPIRY_MINUTES } from './deposit.js';
-import logger from '../utils/logger.js';
-import Payin from '../models/Payin.js';
-import Group from '../models/Group.js';
+import { isOwner } from "./config.js";
+import {
+  buildDepositReply,
+  buildSuccessNotice,
+  DEPOSIT_EXPIRY_MINUTES,
+} from "./deposit.js";
+import logger from "../utils/logger.js";
+import Payin from "../models/Payin.js";
+import Group from "../models/Group.js";
 
-const log = logger.child({ scope: 'bot' });
+const log = logger.child({ scope: "bot" });
 
 function ctxMeta(ctx) {
   return {
@@ -17,95 +21,151 @@ function ctxMeta(ctx) {
 }
 
 function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 function formatUser(from) {
-  if (!from) return '-';
-  const parts = [from.first_name, from.last_name].filter(Boolean).join(' ').trim();
-  const username = from.username ? `@${from.username}` : '';
-  const id = from.id != null ? `(${from.id})` : '';
-  return [parts || username || 'Unknown', username && parts ? username : '', id].filter(Boolean).join(' ').trim();
+  if (!from) return "-";
+  const parts = [from.first_name, from.last_name]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  const username = from.username ? `@${from.username}` : "";
+  const id = from.id != null ? `(${from.id})` : "";
+  return [parts || username || "Unknown", username && parts ? username : "", id]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
 }
 
 async function notifyOwnerError(ctx, config, details = {}) {
   const ownerId = config?.ownerId;
   if (!ownerId || !ctx?.api?.sendMessage) {
-    log.warn({ event: 'bot.owner_notify.skipped', ...ctxMeta(ctx), reason: 'missing_owner_or_api' }, 'owner notify skipped');
+    log.warn(
+      {
+        event: "bot.owner_notify.skipped",
+        ...ctxMeta(ctx),
+        reason: "missing_owner_or_api",
+      },
+      "owner notify skipped",
+    );
     return;
   }
   const lines = [
-    '⚠️ Command error',
-    `Group: ${escapeHtml(details.groupName || ctx?.chat?.title || String(ctx?.chat?.id || '-'))}`,
-    `Group ID: ${escapeHtml(String(ctx?.chat?.id ?? '-'))}`,
+    "⚠️ Command error",
+    `Group: ${escapeHtml(details.groupName || ctx?.chat?.title || String(ctx?.chat?.id || "-"))}`,
+    `Group ID: ${escapeHtml(String(ctx?.chat?.id ?? "-"))}`,
     `User: ${escapeHtml(details.userName || formatUser(ctx?.from))}`,
-    `Command: ${escapeHtml(details.command || ctx?.message?.text || '-')}`,
+    `Command: ${escapeHtml(details.command || ctx?.message?.text || "-")}`,
   ];
-  if (details.orderId) lines.push(`Order ID: <code>${escapeHtml(details.orderId)}</code>`);
+  if (details.orderId)
+    lines.push(`Order ID: <code>${escapeHtml(details.orderId)}</code>`);
   if (details.payUrl) lines.push(`Pay URL: ${escapeHtml(details.payUrl)}`);
   if (details.error) lines.push(`Error: ${escapeHtml(details.error)}`);
-  const text = lines.join('\n');
+  const text = lines.join("\n");
   try {
     await ctx.api.sendMessage({
       chat_id: ownerId,
       text,
-      parse_mode: 'HTML',
+      parse_mode: "HTML",
       disable_web_page_preview: true,
     });
-    log.info({ event: 'bot.owner_notify.sent', ...ctxMeta(ctx), ownerId, orderId: details.orderId || null }, 'owner notified of command error');
+    log.info(
+      {
+        event: "bot.owner_notify.sent",
+        ...ctxMeta(ctx),
+        ownerId,
+        orderId: details.orderId || null,
+      },
+      "owner notified of command error",
+    );
   } catch (err) {
-    log.error({
-      event: 'bot.owner_notify.failed',
-      ...ctxMeta(ctx),
-      ownerId,
-      error: err?.message,
-      description: err?.response?.body?.description || err?.description,
-      response: err?.response?.body || err?.description,
-    }, 'failed to notify owner');
+    log.error(
+      {
+        event: "bot.owner_notify.failed",
+        ...ctxMeta(ctx),
+        ownerId,
+        error: err?.message,
+        description: err?.response?.body?.description || err?.description,
+        response: err?.response?.body || err?.description,
+      },
+      "failed to notify owner",
+    );
   }
 }
 
 function isGroupChat(ctx) {
   const t = ctx?.chat?.type;
-  return t === 'group' || t === 'supergroup';
+  return t === "group" || t === "supergroup";
 }
 
 function fmtDate(value) {
-  if (!value) return '-';
+  if (!value) return "-";
   const d = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(d.getTime())) return String(value);
   try {
-    return d.toLocaleString('en-IN', {
-      timeZone: 'Asia/Kolkata',
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true,
-    }) + ' IST';
+    return (
+      d.toLocaleString("en-IN", {
+        timeZone: "Asia/Kolkata",
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+      }) + " IST"
+    );
   } catch {
     return d.toISOString();
   }
 }
 
 function fmtAmount(value) {
-  if (value == null) return '-';
-  if (typeof value === 'object' && typeof value.toString === 'function') return value.toString();
+  if (value == null) return "-";
+  if (typeof value === "object" && typeof value.toString === "function")
+    return value.toString();
   return String(value);
 }
 
-async function reportCommandError(ctx, config, details = {}, fallbackToGroup = '⚠️ Something went wrong. Owner has been notified.') {
-  log.warn({ event: 'bot.command.error_reported', ...ctxMeta(ctx), ...details }, 'command error reported');
+function getTodayIstRange() {
+  const now = new Date();
+  const istOffsetMs = 5.5 * 60 * 60 * 1000;
+  const istNow = new Date(now.getTime() + istOffsetMs);
+  const start = new Date(
+    Date.UTC(
+      istNow.getUTCFullYear(),
+      istNow.getUTCMonth(),
+      istNow.getUTCDate(),
+    ) - istOffsetMs,
+  );
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  return { start, end };
+}
+
+function formatDecimal(val) {
+  const n = Number(val);
+  return Number.isFinite(n) ? n.toFixed(2) : "0.00";
+}
+
+async function reportCommandError(
+  ctx,
+  config,
+  details = {},
+  fallbackToGroup = "⚠️ Something went wrong. Owner has been notified.",
+) {
+  log.warn(
+    { event: "bot.command.error_reported", ...ctxMeta(ctx), ...details },
+    "command error reported",
+  );
   if (isGroupChat(ctx)) {
     await notifyOwnerError(ctx, config, details);
     return fallbackToGroup;
   }
   // In private chats, show the actual error (useful for owner/debug)
-  return details.userMessage || `❌ ${escapeHtml(details.error || 'Error')}`;
+  return details.userMessage || `❌ ${escapeHtml(details.error || "Error")}`;
 }
 
 async function fetchGroupById(chatId) {
@@ -131,19 +191,19 @@ async function getRegisteredGroup(chatId) {
 }
 
 const GROUP_LINES = [
-  '/balance - Check this group balance',
-  '/id      - Show this group ID and UID',
-  '/d <amount> - Create a deposit',
-  '/how     - How to create a deposit and use the bot',
-  '/status <order id> - Check a deposit status',
-  '/daily   - Deposit success rate (10m / 30m / 1h / today)',
+  "/balance - Check this group balance",
+  "/id      - Show this group ID and UID",
+  "/d <amount> - Create a deposit",
+  "/how     - How to create a deposit and use the bot",
+  "/status <order id> - Check a deposit status",
+  "/daily   - Deposit success rate (10m / 30m / 1h / today)",
 ];
 
-const REG_LINE = '/reg     - Register a group (run it inside the group)';
-const INFO_LINE = '/info <message> - Notify all active registered groups';
-const PL_LINE = '/pl <t|y|w|m|DD/MM/YY> <cost> - Group profit/loss report';
-const MD_LINE = '/md, /me - Toggle maintenance mode (owner only)';
-const Q_LINE = '/q <order id> - Get full order details (owner DM only)';
+const REG_LINE = "/reg     - Register a group (run it inside the group)";
+const INFO_LINE = "/info <message> - Notify all active registered groups";
+const PL_LINE = "/pl <t|y|w|m|DD/MM/YY> <cost> - Group profit/loss report";
+const MD_LINE = "/md, /me - Toggle maintenance mode (owner only)";
+const Q_LINE = "/q <order id> - Get full order details (owner DM only)";
 
 // Telegram message references for /d slips, keyed by payOrderNo (for edit-in-place).
 const depositMessages = new Map();
@@ -156,7 +216,7 @@ function rememberDepositMessage(orderNo, chatId, messageId, details) {
   const key = String(orderNo);
   clearDepositExpiryTimer(key);
 
-  const reference = { chatId, messageId, ...details, status: 'pending' };
+  const reference = { chatId, messageId, ...details, status: "pending" };
   depositMessages.set(key, reference);
   const delay = Math.max(0, details.expiresAt.getTime() - Date.now());
   const timer = setTimeout(() => {
@@ -166,8 +226,12 @@ function rememberDepositMessage(orderNo, chatId, messageId, details) {
 }
 
 async function expireDepositMessage(orderNo, reference) {
-  if (depositMessages.get(orderNo) !== reference || reference.status !== 'pending') return;
-  reference.status = 'expired';
+  if (
+    depositMessages.get(orderNo) !== reference ||
+    reference.status !== "pending"
+  )
+    return;
+  reference.status = "expired";
   depositExpiryTimers.delete(orderNo);
   const deposit = buildDepositReply({
     orderId: orderNo,
@@ -183,16 +247,27 @@ async function expireDepositMessage(orderNo, reference) {
       text: deposit.text,
       ...deposit.options,
     });
-    log.info({ event: 'bot.deposit.expired', orderNo, chatId: reference.chatId }, 'deposit message expired');
+    log.info(
+      { event: "bot.deposit.expired", orderNo, chatId: reference.chatId },
+      "deposit message expired",
+    );
   } catch (err) {
-    log.error({ event: 'bot.deposit.expire_edit_failed', orderNo, chatId: reference.chatId, err }, 'failed to edit expired deposit message');
+    log.error(
+      {
+        event: "bot.deposit.expire_edit_failed",
+        orderNo,
+        chatId: reference.chatId,
+        err,
+      },
+      "failed to edit expired deposit message",
+    );
   }
 }
 
 async function notifyPayinSuccess({ orderId, amount, groupId }) {
   const reference = depositMessages.get(String(orderId));
   if (reference) {
-    reference.status = 'completed';
+    reference.status = "completed";
     clearDepositExpiryTimer(orderId);
     const deposit = buildDepositReply({
       orderId,
@@ -208,39 +283,75 @@ async function notifyPayinSuccess({ orderId, amount, groupId }) {
         text: deposit.text,
         ...deposit.options,
       });
-      log.info({ event: 'bot.deposit.completed', orderNo: orderId, chatId: reference.chatId }, 'deposit message marked completed');
+      log.info(
+        {
+          event: "bot.deposit.completed",
+          orderNo: orderId,
+          chatId: reference.chatId,
+        },
+        "deposit message marked completed",
+      );
     } catch (err) {
-      log.error({ event: 'bot.deposit.complete_edit_failed', orderNo: orderId, chatId: reference.chatId, err }, 'failed to edit completed deposit message');
+      log.error(
+        {
+          event: "bot.deposit.complete_edit_failed",
+          orderNo: orderId,
+          chatId: reference.chatId,
+          err,
+        },
+        "failed to edit completed deposit message",
+      );
     }
   }
 
   if (!groupId) {
-    log.warn({ event: 'bot.payin_notice.skipped', orderNo: orderId, reason: 'missing_group_id' }, 'payin success notice skipped');
+    log.warn(
+      {
+        event: "bot.payin_notice.skipped",
+        orderNo: orderId,
+        reason: "missing_group_id",
+      },
+      "payin success notice skipped",
+    );
     return;
   }
   if (!_bot?.api?.sendMessage) {
-    log.warn({ event: 'bot.payin_notice.skipped', orderNo: orderId, groupId, reason: 'bot_unavailable' }, 'payin success notice skipped');
+    log.warn(
+      {
+        event: "bot.payin_notice.skipped",
+        orderNo: orderId,
+        groupId,
+        reason: "bot_unavailable",
+      },
+      "payin success notice skipped",
+    );
     return;
   }
 
-  const notice = buildSuccessNotice({ orderId, amount, direction: 'credit' });
+  const notice = buildSuccessNotice({ orderId, amount, direction: "credit" });
   try {
     await _bot.api.sendMessage({
       chat_id: groupId,
       text: notice.text,
       ...notice.options,
     });
-    log.info({ event: 'bot.payin_notice.sent', orderNo: orderId, groupId }, 'payin success notice sent');
+    log.info(
+      { event: "bot.payin_notice.sent", orderNo: orderId, groupId },
+      "payin success notice sent",
+    );
   } catch (err) {
-    log.error({ event: 'bot.payin_notice.failed', orderNo: orderId, groupId, err }, 'failed to send payin success notice');
+    log.error(
+      { event: "bot.payin_notice.failed", orderNo: orderId, groupId, err },
+      "failed to send payin success notice",
+    );
   }
 }
 
 function helpText({ owner = false } = {}) {
-  const lines = ['Commands:'];
+  const lines = ["Commands:"];
   if (owner) lines.push(REG_LINE, INFO_LINE, PL_LINE, MD_LINE, Q_LINE);
   lines.push(...GROUP_LINES);
-  return lines.join('\n');
+  return lines.join("\n");
 }
 
 const HELP = helpText();
@@ -252,23 +363,29 @@ function clearDepositExpiryTimer(orderNo) {
 }
 
 async function reply(ctx, text, options) {
-  const opts = options ?? { parse_mode: 'HTML' };
+  const opts = options ?? { parse_mode: "HTML" };
   try {
     return await ctx.reply(text, opts);
   } catch (err) {
-    log.error({
-      event: 'bot.reply_failed',
-      ...ctxMeta(ctx),
-      err,
-      response: err?.response?.body || err?.description,
-      textPreview: String(text).slice(0, 200),
-    }, 'failed to send telegram reply');
+    log.error(
+      {
+        event: "bot.reply_failed",
+        ...ctxMeta(ctx),
+        err,
+        response: err?.response?.body || err?.description,
+        textPreview: String(text).slice(0, 200),
+      },
+      "failed to send telegram reply",
+    );
     // Fallback: if HTML parsing failed, try sending as plain text to avoid silent drops
-    if (opts.parse_mode === 'HTML') {
+    if (opts.parse_mode === "HTML") {
       try {
-        return await ctx.reply(String(text).replace(/<[^>]+>/g, ''), {});
+        return await ctx.reply(String(text).replace(/<[^>]+>/g, ""), {});
       } catch (err2) {
-        log.error({ event: 'bot.reply_fallback_failed', ...ctxMeta(ctx), err: err2 }, 'failed to send plain-text fallback reply');
+        log.error(
+          { event: "bot.reply_fallback_failed", ...ctxMeta(ctx), err: err2 },
+          "failed to send plain-text fallback reply",
+        );
       }
     }
   }
@@ -278,16 +395,19 @@ async function safeHandler(name, ctx, fn) {
   try {
     return await fn();
   } catch (err) {
-    log.error({ event: 'bot.handler_error', handler: name, ...ctxMeta(ctx), err }, 'bot command handler failed');
+    log.error(
+      { event: "bot.handler_error", handler: name, ...ctxMeta(ctx), err },
+      "bot command handler failed",
+    );
     try {
       if (isGroupChat(ctx)) {
         await notifyOwnerError(ctx, _config, {
           command: ctx?.message?.text || name,
-          error: err?.message || 'Internal error',
+          error: err?.message || "Internal error",
         });
-        await reply(ctx, '⚠️ Something went wrong. Owner has been notified.');
+        await reply(ctx, "⚠️ Something went wrong. Owner has been notified.");
       } else {
-        await reply(ctx, '❌ Internal error. Please try again later.');
+        await reply(ctx, "❌ Internal error. Please try again later.");
       }
     } catch (_) {}
   }
@@ -295,21 +415,21 @@ async function safeHandler(name, ctx, fn) {
 
 async function handleOrder(ctx, config) {
   const chat = ctx.chat || {};
-  const text = (ctx.message?.text || '').trim();
+  const text = (ctx.message?.text || "").trim();
   const args = text.split(/\s+/).slice(1);
   const amount = args[0];
-  if (!amount) return reply(ctx, 'Usage: /d &lt;amount&gt; (e.g. /d 100.00)');
+  if (!amount) return reply(ctx, "Usage: /d &lt;amount&gt; (e.g. /d 100.00)");
 
   // Send processing message first, then edit with result
   let processingMsg = null;
   try {
-    processingMsg = await reply(ctx, 'Request processing...');
+    processingMsg = await reply(ctx, "Request processing...");
   } catch (_) {
     // reply() already logs; continue without processing message
   }
 
   const editOrSend = async (msgText, options) => {
-    const opts = options ?? { parse_mode: 'HTML' };
+    const opts = options ?? { parse_mode: "HTML" };
     if (processingMsg?.message_id) {
       try {
         return await ctx.api.editMessageText({
@@ -319,7 +439,15 @@ async function handleOrder(ctx, config) {
           ...opts,
         });
       } catch (err) {
-        log.warn({ event: 'bot.deposit.edit_failed', ...ctxMeta(ctx), error: err?.message, response: err?.response?.body || err?.description }, 'failed to edit processing message');
+        log.warn(
+          {
+            event: "bot.deposit.edit_failed",
+            ...ctxMeta(ctx),
+            error: err?.message,
+            response: err?.response?.body || err?.description,
+          },
+          "failed to edit processing message",
+        );
       }
     }
     return reply(ctx, msgText, opts);
@@ -328,64 +456,86 @@ async function handleOrder(ctx, config) {
   try {
     const port = process.env.PORT || 4000;
     const url = `http://localhost:${port}/payin/order`;
-    log.info({ event: 'bot.deposit.request', ...ctxMeta(ctx), amount, url }, 'creating deposit order');
+    log.info(
+      { event: "bot.deposit.request", ...ctxMeta(ctx), amount, url },
+      "creating deposit order",
+    );
     const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      method: "POST",
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ amount, groupId: chat?.id, uid: ctx.groupUid }),
     });
     const raw = await res.text();
     let data = {};
-    try { data = raw ? JSON.parse(raw) : {}; } catch (_) { data = { _nonJson: true, raw: raw?.slice(0, 500) }; }
-    log.info({
-      event: 'bot.deposit.response',
-      ...ctxMeta(ctx),
-      httpStatus: res.status,
-      ok: res.ok,
-      resultCode: data?.resultCode,
-      stateInfo: data?.stateInfo,
-      payOrderNo: data?.payOrderNo,
-      upiId: data?.upiId || null,
-      hasPayURL: Boolean(data?.payURL || data?.payUrl),
-      hasPayParams: Boolean(data?.payParams),
-      responseKeys: data && typeof data === 'object' ? Object.keys(data) : null,
-    }, 'deposit order response received');
+    try {
+      data = raw ? JSON.parse(raw) : {};
+    } catch (_) {
+      data = { _nonJson: true, raw: raw?.slice(0, 500) };
+    }
+    log.info(
+      {
+        event: "bot.deposit.response",
+        ...ctxMeta(ctx),
+        httpStatus: res.status,
+        ok: res.ok,
+        resultCode: data?.resultCode,
+        stateInfo: data?.stateInfo,
+        payOrderNo: data?.payOrderNo,
+        upiId: data?.upiId || null,
+        hasPayURL: Boolean(data?.payURL || data?.payUrl),
+        hasPayParams: Boolean(data?.payParams),
+        responseKeys:
+          data && typeof data === "object" ? Object.keys(data) : null,
+      },
+      "deposit order response received",
+    );
 
-    if (data.resultCode === '0000') {
-      const orderNo = data.payOrderNo || '';
+    if (data.resultCode === "0000") {
+      const orderNo = data.payOrderNo || "";
       const displayAmount = data.deeplinkAmount || data.totalAmount || amount;
       const upiId = data.upiId || null;
 
       // Do not send deposit slip unless UPI ID and amount are available from deeplink
       if (!upiId || !data.deeplinkAmount) {
-        const reason = data.reason || data.stateInfo || 'UPI/deeplink data missing';
-        const payUrl = data.payURL || data.payUrl || '';
-        log.warn({
-          event: 'bot.deposit.missing_deeplink_data',
-          ...ctxMeta(ctx),
-          orderNo,
-          upiIdPresent: Boolean(upiId),
-          deeplinkAmount: data.deeplinkAmount || null,
-          totalAmount: data.totalAmount || null,
-          hasPayURL: Boolean(payUrl),
-          reason,
-        }, 'deposit order missing deeplink upi/amount; not sending slip');
-        const groupMsg = await reportCommandError(ctx, config, {
-          command: ctx?.message?.text || '/d',
-          error: reason,
-          orderId: orderNo || null,
-          payUrl: payUrl || null,
-        }, 'Please create a new order with a different amount or the same amount. Thank you.');
+        const reason =
+          data.reason || data.stateInfo || "UPI/deeplink data missing";
+        const payUrl = data.payURL || data.payUrl || "";
+        log.warn(
+          {
+            event: "bot.deposit.missing_deeplink_data",
+            ...ctxMeta(ctx),
+            orderNo,
+            upiIdPresent: Boolean(upiId),
+            deeplinkAmount: data.deeplinkAmount || null,
+            totalAmount: data.totalAmount || null,
+            hasPayURL: Boolean(payUrl),
+            reason,
+          },
+          "deposit order missing deeplink upi/amount; not sending slip",
+        );
+        const groupMsg = await reportCommandError(
+          ctx,
+          config,
+          {
+            command: ctx?.message?.text || "/d",
+            error: reason,
+            orderId: orderNo || null,
+            payUrl: payUrl || null,
+          },
+          "Please create a new order with a different amount or the same amount. Thank you.",
+        );
         // In private/owner chat show details
         if (!isGroupChat(ctx)) {
           const lines = [`❌ ${escapeHtml(reason)}`];
           if (payUrl) lines.push(`Pay URL: ${escapeHtml(payUrl)}`);
-          return editOrSend(lines.join('\n'));
+          return editOrSend(lines.join("\n"));
         }
         return editOrSend(groupMsg);
       }
 
-      const expiresAt = new Date(Date.now() + DEPOSIT_EXPIRY_MINUTES * 60 * 1000);
+      const expiresAt = new Date(
+        Date.now() + DEPOSIT_EXPIRY_MINUTES * 60 * 1000,
+      );
       const deposit = buildDepositReply({
         orderId: orderNo,
         amount: displayAmount,
@@ -394,80 +544,121 @@ async function handleOrder(ctx, config) {
       });
       const sentMsg = await editOrSend(deposit.text, deposit.options);
       if (orderNo && (sentMsg?.message_id || processingMsg?.message_id)) {
-        rememberDepositMessage(orderNo, chat.id, sentMsg?.message_id || processingMsg.message_id, {
-          amount: displayAmount,
-          upiId,
-          expiresAt,
-        });
+        rememberDepositMessage(
+          orderNo,
+          chat.id,
+          sentMsg?.message_id || processingMsg.message_id,
+          {
+            amount: displayAmount,
+            upiId,
+            expiresAt,
+          },
+        );
       }
       return sentMsg;
     }
 
-    const reason = data.reason || data.stateInfo || data.error || data?.raw?.slice?.(0, 120) || 'unknown';
-    const payUrl = data.payURL || data.payUrl || '';
+    const reason =
+      data.reason ||
+      data.stateInfo ||
+      data.error ||
+      data?.raw?.slice?.(0, 120) ||
+      "unknown";
+    const payUrl = data.payURL || data.payUrl || "";
     const orderId = data.payOrderNo || null;
-    log.warn({
-      event: 'bot.deposit.rejected',
-      ...ctxMeta(ctx),
-      httpStatus: res.status,
-      resultCode: data?.resultCode,
-      stateInfo: data?.stateInfo,
-      reason,
-      error: data?.error,
-      payURL: payUrl || null,
-      orderId,
-      responseKeys: data && typeof data === 'object' ? Object.keys(data) : null,
-    }, 'deposit order rejected');
-    const groupMsg = await reportCommandError(ctx, config, {
-      command: ctx?.message?.text || '/d',
-      error: reason,
-      orderId,
-      payUrl: payUrl || null,
-    }, 'Please create a new order with a different amount or the same amount. Thank you.');
+    log.warn(
+      {
+        event: "bot.deposit.rejected",
+        ...ctxMeta(ctx),
+        httpStatus: res.status,
+        resultCode: data?.resultCode,
+        stateInfo: data?.stateInfo,
+        reason,
+        error: data?.error,
+        payURL: payUrl || null,
+        orderId,
+        responseKeys:
+          data && typeof data === "object" ? Object.keys(data) : null,
+      },
+      "deposit order rejected",
+    );
+    const groupMsg = await reportCommandError(
+      ctx,
+      config,
+      {
+        command: ctx?.message?.text || "/d",
+        error: reason,
+        orderId,
+        payUrl: payUrl || null,
+      },
+      "Please create a new order with a different amount or the same amount. Thank you.",
+    );
     if (!isGroupChat(ctx)) {
       const lines = [`❌ ${escapeHtml(reason)}`];
       if (payUrl) lines.push(`Pay URL: ${escapeHtml(payUrl)}`);
-      return editOrSend(lines.join('\n'));
+      return editOrSend(lines.join("\n"));
     }
     return editOrSend(groupMsg);
   } catch (err) {
-    log.error({ event: 'bot.deposit.error', ...ctxMeta(ctx), amount, err }, 'deposit command failed');
-    const groupMsg = await reportCommandError(ctx, config, {
-      command: ctx?.message?.text || '/d',
-      error: err?.message || 'Unknown error',
-    }, 'Please create a new order with a different amount or the same amount. Thank you.');
+    log.error(
+      { event: "bot.deposit.error", ...ctxMeta(ctx), amount, err },
+      "deposit command failed",
+    );
+    const groupMsg = await reportCommandError(
+      ctx,
+      config,
+      {
+        command: ctx?.message?.text || "/d",
+        error: err?.message || "Unknown error",
+      },
+      "Please create a new order with a different amount or the same amount. Thank you.",
+    );
     if (!isGroupChat(ctx)) {
-      return editOrSend('❌ Error: ' + escapeHtml(err?.message || 'Unknown error'));
+      return editOrSend(
+        "❌ Error: " + escapeHtml(err?.message || "Unknown error"),
+      );
     }
     return editOrSend(groupMsg);
   }
 }
 
 async function handleQ(ctx, config) {
-  if (!isOwner(ctx?.from, config)) return reply(ctx, 'Only the owner can use /q.');
-  if (ctx?.chat?.type !== 'private') return reply(ctx, 'Run /q in a private chat with the bot.');
+  if (!isOwner(ctx?.from, config))
+    return reply(ctx, "Only the owner can use /q.");
+  if (ctx?.chat?.type !== "private")
+    return reply(ctx, "Run /q in a private chat with the bot.");
 
-  const text = (ctx.message?.text || '').trim();
+  const text = (ctx.message?.text || "").trim();
   const args = text.split(/\s+/).slice(1);
   const orderNo = args[0];
-  if (!orderNo) return reply(ctx, 'Usage: /q &lt;orderId&gt;');
+  if (!orderNo) return reply(ctx, "Usage: /q &lt;orderId&gt;");
 
   try {
-    log.info({ event: 'bot.q.request', ...ctxMeta(ctx), orderNo }, 'q command requested');
+    log.info(
+      { event: "bot.q.request", ...ctxMeta(ctx), orderNo },
+      "q command requested",
+    );
     const payin = await Payin.findOne({ payOrderNo: orderNo }).lean();
     if (!payin) {
-      log.warn({ event: 'bot.q.not_found', ...ctxMeta(ctx), orderNo }, 'order not found for q');
-      return reply(ctx, 'Order not found: <code>' + escapeHtml(orderNo) + '</code>');
+      log.warn(
+        { event: "bot.q.not_found", ...ctxMeta(ctx), orderNo },
+        "order not found for q",
+      );
+      return reply(
+        ctx,
+        "Order not found: <code>" + escapeHtml(orderNo) + "</code>",
+      );
     }
 
-    let groupUid = '-';
-    let groupId = payin.groupId ?? '-';
+    let groupUid = "-";
+    let groupId = payin.groupId ?? "-";
     try {
       if (payin.group) {
         const g = await Group.findById(payin.group).lean();
         if (g) {
           groupUid = g.uid || groupUid;
-          if (groupId === '-' || groupId == null) groupId = g.groupId ?? groupId;
+          if (groupId === "-" || groupId == null)
+            groupId = g.groupId ?? groupId;
         }
       } else if (payin.groupId != null) {
         const g = await Group.findOne({ groupId: payin.groupId }).lean();
@@ -476,61 +667,107 @@ async function handleQ(ctx, config) {
     } catch (_) {
       // best-effort group resolution
     }
-    if (groupUid === '-' && payin.uid) groupUid = payin.uid;
+    if (groupUid === "-" && payin.uid) groupUid = payin.uid;
 
     const amount = payin.deeplinkAmount || fmtAmount(payin.totalAmount);
-    const upi = payin.upiId || '-';
+    const upi = payin.upiId || "-";
     const createdAt = fmtDate(payin.createdAt);
-    const successAt = payin.status === 'success' ? fmtDate(payin.paidAt || payin.updatedAt) : '-';
-    const payUrl = payin.payURL || '-';
-    const status = payin.status || '-';
+    const successAt =
+      payin.status === "success"
+        ? fmtDate(payin.paidAt || payin.updatedAt)
+        : "-";
+    const payUrl = payin.payURL || "-";
+    const status = payin.status || "-";
 
     const lines = [
-      '<b>Order Details</b>',
-      'Group UID: <code>' + escapeHtml(groupUid) + '</code>',
-      'Group ID: <code>' + escapeHtml(String(groupId ?? '-')) + '</code>',
-      'Order ID: <code>' + escapeHtml(payin.payOrderNo || orderNo) + '</code>',
-      'Status: ' + escapeHtml(status),
-      'UPI: <code>' + escapeHtml(upi) + '</code>',
-      'Amount: <code>' + escapeHtml(String(amount ?? '-')) + '</code>',
-      'Created at: ' + escapeHtml(createdAt),
-      'Success at: ' + escapeHtml(successAt),
-      'Pay URL: ' + (payUrl !== '-' ? escapeHtml(payUrl) : '-'),
+      "<b>Order Details</b>",
+      "Group UID: <code>" + escapeHtml(groupUid) + "</code>",
+      "Group ID: <code>" + escapeHtml(String(groupId ?? "-")) + "</code>",
+      "Order ID: <code>" + escapeHtml(payin.payOrderNo || orderNo) + "</code>",
+      "Status: " + escapeHtml(status),
+      "UPI: <code>" + escapeHtml(upi) + "</code>",
+      "Amount: <code>" + escapeHtml(String(amount ?? "-")) + "</code>",
+      "Created at: " + escapeHtml(createdAt),
+      "Success at: " + escapeHtml(successAt),
+      "Pay URL: " + (payUrl !== "-" ? escapeHtml(payUrl) : "-"),
     ];
 
-    log.info({ event: 'bot.q.success', ...ctxMeta(ctx), orderNo: payin.payOrderNo, status }, 'q command served');
-    return reply(ctx, lines.join('\n'), { parse_mode: 'HTML', disable_web_page_preview: true });
+    log.info(
+      {
+        event: "bot.q.success",
+        ...ctxMeta(ctx),
+        orderNo: payin.payOrderNo,
+        status,
+      },
+      "q command served",
+    );
+    return reply(ctx, lines.join("\n"), {
+      parse_mode: "HTML",
+      disable_web_page_preview: true,
+    });
   } catch (err) {
-    log.error({ event: 'bot.q.error', ...ctxMeta(ctx), orderNo, err }, 'q command failed');
-    return reply(ctx, '❌ Error: ' + escapeHtml(err?.message || 'Unknown error'));
+    log.error(
+      { event: "bot.q.error", ...ctxMeta(ctx), orderNo, err },
+      "q command failed",
+    );
+    return reply(
+      ctx,
+      "❌ Error: " + escapeHtml(err?.message || "Unknown error"),
+    );
   }
 }
 
 async function handleStatus(ctx) {
-  const text = (ctx.message?.text || '').trim();
+  const text = (ctx.message?.text || "").trim();
   const args = text.split(/\s+/).slice(1);
   const orderNo = args[0];
-  if (!orderNo) return reply(ctx, 'Usage: /status &lt;payOrderNo&gt;');
+  if (!orderNo) return reply(ctx, "Usage: /status &lt;payOrderNo&gt;");
 
   try {
     const port = process.env.PORT || 4000;
-    log.info({ event: 'bot.status.request', ...ctxMeta(ctx), orderNo }, 'status check requested');
-    const res = await fetch(`http://localhost:${port}/pay/${encodeURIComponent(orderNo)}`);
+    log.info(
+      { event: "bot.status.request", ...ctxMeta(ctx), orderNo },
+      "status check requested",
+    );
+    const res = await fetch(
+      `http://localhost:${port}/pay/${encodeURIComponent(orderNo)}`,
+    );
     if (!res.ok) {
-      log.warn({ event: 'bot.status.not_found', ...ctxMeta(ctx), orderNo, httpStatus: res.status }, 'order status not found');
-      return reply(ctx, 'Order not found: <code>' + escapeHtml(orderNo) + '</code>');
+      log.warn(
+        {
+          event: "bot.status.not_found",
+          ...ctxMeta(ctx),
+          orderNo,
+          httpStatus: res.status,
+        },
+        "order status not found",
+      );
+      return reply(
+        ctx,
+        "Order not found: <code>" + escapeHtml(orderNo) + "</code>",
+      );
     }
     const data = await res.json();
     const orderId = data.payOrderNo || orderNo;
-    const amount = data.deeplinkAmount || data.totalAmount || '0';
+    const amount = data.deeplinkAmount || data.totalAmount || "0";
     const upiId = data.upiId || null;
-    const status = String(data.status || '').toLowerCase();
-    log.info({ event: 'bot.status.response', ...ctxMeta(ctx), orderNo, status, amount, upiIdPresent: Boolean(upiId) }, 'order status fetched');
+    const status = String(data.status || "").toLowerCase();
+    log.info(
+      {
+        event: "bot.status.response",
+        ...ctxMeta(ctx),
+        orderNo,
+        status,
+        amount,
+        upiIdPresent: Boolean(upiId),
+      },
+      "order status fetched",
+    );
 
-    if (status === 'success') {
+    if (status === "success") {
       const reference = depositMessages.get(String(orderNo));
       if (reference) {
-        reference.status = 'completed';
+        reference.status = "completed";
         clearDepositExpiryTimer(orderNo);
       }
       const deposit = buildDepositReply({
@@ -548,19 +785,25 @@ async function handleStatus(ctx) {
             text: deposit.text,
             ...deposit.options,
           });
-          log.info({ event: 'bot.status.edited', ...ctxMeta(ctx), orderNo, status }, 'deposit message updated');
+          log.info(
+            { event: "bot.status.edited", ...ctxMeta(ctx), orderNo, status },
+            "deposit message updated",
+          );
           return;
         } catch (err) {
-          log.warn({ event: 'bot.status.edit_failed', ...ctxMeta(ctx), orderNo, err }, 'failed to edit deposit message');
+          log.warn(
+            { event: "bot.status.edit_failed", ...ctxMeta(ctx), orderNo, err },
+            "failed to edit deposit message",
+          );
         }
       }
       return reply(ctx, deposit.text, deposit.options);
     }
 
-    if (status === 'expired') {
+    if (status === "expired") {
       const reference = depositMessages.get(String(orderNo));
       if (reference) {
-        reference.status = 'expired';
+        reference.status = "expired";
         clearDepositExpiryTimer(orderNo);
       }
       const deposit = buildDepositReply({
@@ -578,140 +821,276 @@ async function handleStatus(ctx) {
             text: deposit.text,
             ...deposit.options,
           });
-          log.info({ event: 'bot.status.edited', ...ctxMeta(ctx), orderNo, status }, 'deposit message updated');
+          log.info(
+            { event: "bot.status.edited", ...ctxMeta(ctx), orderNo, status },
+            "deposit message updated",
+          );
           return;
         } catch (err) {
-          log.warn({ event: 'bot.status.edit_failed', ...ctxMeta(ctx), orderNo, err }, 'failed to edit deposit message');
+          log.warn(
+            { event: "bot.status.edit_failed", ...ctxMeta(ctx), orderNo, err },
+            "failed to edit deposit message",
+          );
         }
       }
       return reply(ctx, deposit.text, deposit.options);
     }
 
     const lines = [
-      'Order: <code>' + escapeHtml(data.payOrderNo || orderNo) + '</code>',
-      'Status: ' + escapeHtml(data.status || '-'),
-      'Amount: ' + escapeHtml(String(data.totalAmount ?? '-')) + ' ' + escapeHtml(data.currencyCode || ''),
-      'Type: ' + escapeHtml(data.payType || ''),
+      "Order: <code>" + escapeHtml(data.payOrderNo || orderNo) + "</code>",
+      "Status: " + escapeHtml(data.status || "-"),
+      "Amount: " +
+        escapeHtml(String(data.totalAmount ?? "-")) +
+        " " +
+        escapeHtml(data.currencyCode || ""),
+      "Type: " + escapeHtml(data.payType || ""),
     ];
-    return reply(ctx, lines.join('\n'));
+    return reply(ctx, lines.join("\n"));
   } catch (err) {
-    log.error({ event: 'bot.status.error', ...ctxMeta(ctx), orderNo, err }, 'status command failed');
+    log.error(
+      { event: "bot.status.error", ...ctxMeta(ctx), orderNo, err },
+      "status command failed",
+    );
     if (isGroupChat(ctx)) {
       await notifyOwnerError(ctx, _config, {
-        command: ctx?.message?.text || '/status',
-        error: err?.message || 'Unknown error',
+        command: ctx?.message?.text || "/status",
+        error: err?.message || "Unknown error",
         orderId: orderNo,
       });
-      return reply(ctx, '⚠️ Could not fetch status. Owner has been notified.');
+      return reply(ctx, "⚠️ Could not fetch status. Owner has been notified.");
     }
-    return reply(ctx, '❌ Error: ' + escapeHtml(err.message));
+    return reply(ctx, "❌ Error: " + escapeHtml(err.message));
   }
 }
 
 function register(bot, config) {
   _bot = bot;
   _config = config;
-  bot.command('balance', async (ctx) => {
-    const chat = ctx.chat || {};
-    if (chat.type === 'private') return reply(ctx, 'Run /balance inside a registered group.');
-    const group = await getRegisteredGroup(chat.id);
-    if (!group) return reply(ctx, 'This group is not registered. Owner must run /reg first.');
-    const groupDoc = await fetchGroupById(chat.id);
-    return reply(ctx,
-      '💰 Group balance\n' +
-      'UID: <code>' + (groupDoc?.uid || group.uid) + '</code>\n' +
-      'Group: <code>' + chat.id + '</code>\n' +
-      'Status: ' + (group.status || '-') + '\n' +
-      'Balance: ' + (group.balance?.toString?.() || '0') + '\n' +
-      'ExchangeRate: ' + (groupDoc?.exchangeRate || group.exchangeRate || 1)
-    );
-  });
+  bot.command("balance", async (ctx) =>
+    safeHandler("balance", ctx, async () => {
+      const chat = ctx.chat || {};
+      if (chat.type === "private")
+        return reply(ctx, "Run /balance inside a registered group.");
 
-  bot.command('d', async (ctx) => safeHandler('d', ctx, async () => {
-    log.info({ event: 'bot.command', ...ctxMeta(ctx), command: 'd' }, 'command received');
-    const chat = ctx.chat || {};
-    if (chat.type === 'private') {
-      return reply(ctx, 'Run /d inside a registered group. Deposits belong to a group.');
-    }
-    const group = await getRegisteredGroup(chat.id);
-    if (!group) return reply(ctx, 'This group is not registered. Owner must run /reg first.');
-    if (group.status && group.status !== 'active') return reply(ctx, 'Group is ' + escapeHtml(group.status) + '. Contact support.');
-    ctx.groupUid = group.uid;
-    return handleOrder(ctx, config);
-  }));
+      let group = await Group.findOne({ groupId: Number(chat.id) });
+      if (!group) {
+        group = await getRegisteredGroup(chat.id);
+      }
+      if (!group)
+        return reply(
+          ctx,
+          "This group is not registered. Owner must run /reg first.",
+        );
 
-  bot.command('id', async (ctx) => safeHandler('id', ctx, async () => {
-    const chat = ctx.chat || {};
-    if (chat.type === 'private') return reply(ctx, 'Run /id inside a registered group.');
-    const group = await getRegisteredGroup(chat.id);
-    if (!group) return reply(ctx, 'This group is not registered. Owner must run /reg first.');
-    const createdAt = group.createdAt ? fmtDate(group.createdAt) : '-';
-    return reply(ctx,
-      '🆔 Group info\n' +
-      'Group ID: <code>' + escapeHtml(String(group.groupId ?? chat.id)) + '</code>\n' +
-      'UID: <code>' + escapeHtml(group.uid || '-') + '</code>\n' +
-      'Created at: ' + escapeHtml(createdAt)
-    );
-  }));
+      const { start, end } = getTodayIstRange();
+      const groupFilter = [{ groupId: Number(chat.id) }];
+      if (group._id) groupFilter.push({ group: group._id });
+      if (group.uid) groupFilter.push({ uid: String(group.uid) });
 
-  bot.command('help', (ctx) => safeHandler('help', ctx, () => {
-    log.info({ event: 'bot.command', ...ctxMeta(ctx), command: 'help' }, 'command received');
-    const ownerDm = isOwner(ctx.from, config) && ctx.chat?.type === 'private';
-    return reply(ctx, helpText({ owner: ownerDm }));
-  }));
+      const payinFilter = {
+        $and: [
+          { $or: groupFilter },
+          { status: "success" },
+          {
+            $or: [
+              { paidAt: { $gte: start, $lt: end } },
+              { paidAt: null, updatedAt: { $gte: start, $lt: end } },
+              { paidAt: null, createdAt: { $gte: start, $lt: end } },
+              {
+                paidAt: { $exists: false },
+                updatedAt: { $gte: start, $lt: end },
+              },
+              {
+                paidAt: { $exists: false },
+                createdAt: { $gte: start, $lt: end },
+              },
+            ],
+          },
+        ],
+      };
 
-  bot.command('status', async (ctx) => safeHandler('status', ctx, async () => {
-    log.info({ event: 'bot.command', ...ctxMeta(ctx), command: 'status' }, 'command received');
-    const chat = ctx.chat || {};
-    if (chat.type === 'private') return reply(ctx, 'Run /status inside a registered group.');
-    const group = await getRegisteredGroup(chat.id);
-    if (!group) return reply(ctx, 'This group is not registered. Owner must run /reg first.');
-    return handleStatus(ctx);
-  }));
+      const successfulPayins = await Payin.find(payinFilter)
+        .select("totalAmount")
+        .lean();
+      let todayDepositTotal = 0;
+      for (const p of successfulPayins) {
+        const amt = Number(p.totalAmount?.toString?.() || 0);
+        if (Number.isFinite(amt)) {
+          todayDepositTotal += amt;
+        }
+      }
 
-  bot.command('start', (ctx) => safeHandler('start', ctx, () => {
-    log.info({ event: 'bot.command', ...ctxMeta(ctx), command: 'start' }, 'command received');
-    const ownerDm = isOwner(ctx.from, config) && ctx.chat?.type === 'private';
-    return reply(ctx, helpText({ owner: ownerDm }));
-  }));
+      const balanceNum = Number(group.balance?.toString?.() ?? 0);
+      const currentBalance = Number.isFinite(balanceNum)
+        ? balanceNum.toFixed(2)
+        : "0.00";
+      const depositTotal = formatDecimal(todayDepositTotal);
 
-  bot.command('q', async (ctx) => safeHandler('q', ctx, async () => {
-    log.info({ event: 'bot.command', ...ctxMeta(ctx), command: 'q' }, 'command received');
-    return handleQ(ctx, config);
-  }));
+      const rate = Number(group.exchangeRate);
+      const hasRate = Number.isFinite(rate) && rate > 0;
+      const usdtVal = hasRate ? (balanceNum / rate).toFixed(2) : "-";
 
-  bot.command('reg', async (ctx) => {
+      const message = [
+        `balance : ${currentBalance} || U : ${usdtVal}`,
+        `deposit : ${depositTotal}`,
+        "froze : 00",
+      ].join("\n");
+
+      return reply(ctx, message);
+    }),
+  );
+
+  bot.command("d", async (ctx) =>
+    safeHandler("d", ctx, async () => {
+      log.info(
+        { event: "bot.command", ...ctxMeta(ctx), command: "d" },
+        "command received",
+      );
+      const chat = ctx.chat || {};
+      if (chat.type === "private") {
+        return reply(
+          ctx,
+          "Run /d inside a registered group. Deposits belong to a group.",
+        );
+      }
+      const group = await getRegisteredGroup(chat.id);
+      if (!group)
+        return reply(
+          ctx,
+          "This group is not registered. Owner must run /reg first.",
+        );
+      if (group.status && group.status !== "active")
+        return reply(
+          ctx,
+          "Group is " + escapeHtml(group.status) + ". Contact support.",
+        );
+      ctx.groupUid = group.uid;
+      return handleOrder(ctx, config);
+    }),
+  );
+
+  bot.command("id", async (ctx) =>
+    safeHandler("id", ctx, async () => {
+      const chat = ctx.chat || {};
+      if (chat.type === "private")
+        return reply(ctx, "Run /id inside a registered group.");
+      const group = await getRegisteredGroup(chat.id);
+      if (!group)
+        return reply(
+          ctx,
+          "This group is not registered. Owner must run /reg first.",
+        );
+      const createdAt = group.createdAt ? fmtDate(group.createdAt) : "-";
+      return reply(
+        ctx,
+        "🆔 Group info\n" +
+          "Group ID: <code>" +
+          escapeHtml(String(group.groupId ?? chat.id)) +
+          "</code>\n" +
+          "UID: <code>" +
+          escapeHtml(group.uid || "-") +
+          "</code>\n" +
+          "Created at: " +
+          escapeHtml(createdAt),
+      );
+    }),
+  );
+
+  bot.command("help", (ctx) =>
+    safeHandler("help", ctx, () => {
+      log.info(
+        { event: "bot.command", ...ctxMeta(ctx), command: "help" },
+        "command received",
+      );
+      const ownerDm = isOwner(ctx.from, config) && ctx.chat?.type === "private";
+      return reply(ctx, helpText({ owner: ownerDm }));
+    }),
+  );
+
+  bot.command("status", async (ctx) =>
+    safeHandler("status", ctx, async () => {
+      log.info(
+        { event: "bot.command", ...ctxMeta(ctx), command: "status" },
+        "command received",
+      );
+      const chat = ctx.chat || {};
+      if (chat.type === "private")
+        return reply(ctx, "Run /status inside a registered group.");
+      const group = await getRegisteredGroup(chat.id);
+      if (!group)
+        return reply(
+          ctx,
+          "This group is not registered. Owner must run /reg first.",
+        );
+      return handleStatus(ctx);
+    }),
+  );
+
+  bot.command("start", (ctx) =>
+    safeHandler("start", ctx, () => {
+      log.info(
+        { event: "bot.command", ...ctxMeta(ctx), command: "start" },
+        "command received",
+      );
+      const ownerDm = isOwner(ctx.from, config) && ctx.chat?.type === "private";
+      return reply(ctx, helpText({ owner: ownerDm }));
+    }),
+  );
+
+  bot.command("q", async (ctx) =>
+    safeHandler("q", ctx, async () => {
+      log.info(
+        { event: "bot.command", ...ctxMeta(ctx), command: "q" },
+        "command received",
+      );
+      return handleQ(ctx, config);
+    }),
+  );
+
+  bot.command("reg", async (ctx) => {
     const from = ctx.from || {};
-    if (!isOwner(from, config)) return reply(ctx, 'Only the owner can register a group.');
+    if (!isOwner(from, config))
+      return reply(ctx, "Only the owner can register a group.");
     const chat = ctx.chat || {};
-    if (chat.type === 'private') return reply(ctx, 'Run /reg inside the group you want to register.');
+    if (chat.type === "private")
+      return reply(ctx, "Run /reg inside the group you want to register.");
     try {
       const port = process.env.PORT || 4000;
       const res = await fetch(`http://localhost:${port}/groups/register`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ groupId: chat.id, groupName: chat.title || '' }),
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ groupId: chat.id, groupName: chat.title || "" }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) return reply(ctx, `❌ ${data.error || 'registration failed'}`);
-      return reply(ctx, `✅ Group registered.\nUID: <code>${data.uid}</code>\nChat ID: <code>${chat.id}</code>\nTitle: ${chat.title || '-'}`);
+      if (!res.ok)
+        return reply(ctx, `❌ ${data.error || "registration failed"}`);
+      return reply(
+        ctx,
+        `✅ Group registered.\nUID: <code>${data.uid}</code>\nChat ID: <code>${chat.id}</code>\nTitle: ${chat.title || "-"}`,
+      );
     } catch (err) {
       return reply(ctx, `❌ Error: ${err.message}`);
     }
   });
 
-  bot.command('gmsg', async (ctx) => {
+  bot.command("gmsg", async (ctx) => {
     const from = ctx.from || {};
-    if (!isOwner(from, config)) return reply(ctx, 'Only the owner can use /gmsg.');
-    const text = (ctx.message?.text || '').trim().split(/\s+/).slice(1).join(' ');
-    if (!text) return reply(ctx, 'Usage: /gmsg <message>');
-    return reply(ctx, '📢 ' + text);
+    if (!isOwner(from, config))
+      return reply(ctx, "Only the owner can use /gmsg.");
+    const text = (ctx.message?.text || "")
+      .trim()
+      .split(/\s+/)
+      .slice(1)
+      .join(" ");
+    if (!text) return reply(ctx, "Usage: /gmsg <message>");
+    return reply(ctx, "📢 " + text);
   });
 
-  bot.command('md', async (ctx) => {
+  bot.command("md", async (ctx) => {
     const from = ctx.from || {};
-    if (!isOwner(from, config)) return reply(ctx, 'Only the owner can use /md.');
-    return reply(ctx, 'Maintenance toggled (owner only).');
+    if (!isOwner(from, config))
+      return reply(ctx, "Only the owner can use /md.");
+    return reply(ctx, "Maintenance toggled (owner only).");
   });
 
   return true;
