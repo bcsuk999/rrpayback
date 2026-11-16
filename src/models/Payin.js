@@ -24,12 +24,14 @@ const payinSchema = new mongoose.Schema(
 
     payURL: { type: String, required: true },
 
-  // Optional link to a registered Telegram group (for bot-driven deposits).
-  group: { type: mongoose.Schema.Types.ObjectId, ref: 'Group', index: true },
-  groupId: { type: Number, index: true },
-  uid: { type: String, index: true },
-    // Reserved for channels that return a native payment string.
+    // Optional link to a registered Telegram group (for bot-driven deposits).
+    group: { type: mongoose.Schema.Types.ObjectId, ref: 'Group', index: true },
+    groupId: { type: Number, index: true },
+    uid: { type: String, index: true },
+    // Reserved for channels that return a native payment string or QR payload.
     payParams: { type: String },
+    // Extracted UPI/VPA when available from provider response.
+    upiId: { type: String },
 
     status: {
       type: String,
@@ -42,6 +44,7 @@ const payinSchema = new mongoose.Schema(
     utrCode: { type: String },
 
     rawRequest: { type: mongoose.Schema.Types.Mixed },
+    rawResponse: { type: mongoose.Schema.Types.Mixed },
   },
   { timestamps: true }
 );
