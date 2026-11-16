@@ -27,6 +27,8 @@ async function findPayin(identifier) {
   return Payin.findOne({ payOrderNo: String(identifier) });
 }
 
+const PAYIN_DETAIL_SELECT = '-rawRequest -rawResponse';
+
 export const listPayins = asyncHandler(async (req, res) => {
   const requestedPage = Number(req.query.page);
   const page = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
@@ -41,7 +43,7 @@ export const listPayins = asyncHandler(async (req, res) => {
 
   // General search across common fields
   if (req.query.q) {
-    const q = String(req.query.q).trim();
+    const q = String(req.query.q).trim().slice(0, 128);
     if (q) {
       const or = [
         { payOrderNo: q },
@@ -108,34 +110,45 @@ export const listPayins = asyncHandler(async (req, res) => {
 
   if (and.length) filter.$and = and;
 
+  const includeTotal = String(req.query.includeTotal ?? 'true').toLowerCase() !== 'false';
+
+  const payinsQuery = Payin.find(filter)
+    .select('payOrderNo outTradeNo uid groupId upiId totalAmount deeplinkAmount currencyCode payType status payState payURL utrCode paidAt createdAt updatedAt')
+    .sort({ createdAt: -1, _id: -1 })
+    .skip(skip)
+    .limit(limit)
+    .populate('group', 'groupId groupName -_id')
+    .lean();
+
   const [payins, total] = await Promise.all([
-    Payin.find(filter)
-      .select('payOrderNo outTradeNo merNo uid groupId upiId totalAmount deeplinkAmount currencyCode payType status payState payURL utrCode paidAt createdAt updatedAt')
-      .sort({ createdAt: -1, _id: -1 })
-      .skip(skip)
-      .limit(limit)
-      .populate('group', 'uid groupId groupName status exchangeRate')
-      .lean(),
-    Payin.countDocuments(filter),
+    payinsQuery,
+    includeTotal ? Payin.countDocuments(filter) : Promise.resolve(null),
   ]);
 
   return res.json({
     success: true,
     page,
     limit,
-    total,
-    totalPages: Math.ceil(total / limit),
+    ...(includeTotal ? { total, totalPages: Math.ceil(total / limit) } : {}),
+    hasMore: payins.length === limit,
     payins,
   });
 });
 
 export const getPayin = asyncHandler(async (req, res) => {
-  const payin = await findPayin(req.params.id);
-  if (!payin) return res.status(404).json({ success: false, msg: 'Payin not found' });
-  const populated = await Payin.findById(payin._id)
-    .populate('group', 'uid groupId groupName status exchangeRate balance')
+  const id = req.params.id;
+  const byId = /^[0-9a-fA-F]{24}$/.test(String(id))
+    ? await Payin.findById(id)
+        .select(`${PAYIN_DETAIL_SELECT} -merNo`)
+        .populate('group', 'uid groupId groupName status exchangeRate balance -_id')
+        .lean()
+    : null;
+  const payin = byId || await Payin.findOne({ payOrderNo: String(id) })
+    .select(`${PAYIN_DETAIL_SELECT} -merNo`)
+    .populate('group', 'uid groupId groupName status exchangeRate balance -_id')
     .lean();
-  return res.json({ success: true, payin: populated });
+  if (!payin) return res.status(404).json({ success: false, msg: 'Payin not found' });
+  return res.json({ success: true, payin });
 });
 
 export const approvePayin = asyncHandler(async (req, res) => {
@@ -143,48 +156,74 @@ export const approvePayin = asyncHandler(async (req, res) => {
   if (!payin) return res.status(404).json({ success: false, msg: 'Payin not found' });
 
   if (payin.status === 'success') {
-    return res.json({ success: true, msg: 'Payin already approved', payin });
+    const populated = await Payin.findById(payin._id)
+      .select(`${PAYIN_DETAIL_SELECT} -merNo`)
+      .populate('group', 'uid groupId groupName status exchangeRate balance -_id')
+      .lean();
+    return res.json({ success: true, msg: 'Payin already approved', payin: populated || payin });
   }
 
-  payin.status = 'success';
-  payin.payState = '0000';
-  if (!payin.paidAt) payin.paidAt = new Date();
-  if (req.body?.utrCode) payin.utrCode = String(req.body.utrCode);
+  const paidAt = payin.paidAt || new Date();
+  const utrCode = req.body?.utrCode !== undefined ? String(req.body.utrCode) : payin.utrCode;
 
-  let groupChatId = payin.groupId;
+  // Atomically claim approval to reduce double-credit races.
+  const claimed = await Payin.findOneAndUpdate(
+    { _id: payin._id, status: { $ne: 'success' } },
+    { $set: { status: 'success', payState: '0000', paidAt, ...(utrCode ? { utrCode } : {}) } },
+    { new: true }
+  );
+
+  if (!claimed) {
+    const populated = await Payin.findById(payin._id)
+      .select(`${PAYIN_DETAIL_SELECT} -merNo`)
+      .populate('group', 'uid groupId groupName status exchangeRate balance -_id')
+      .lean();
+    return res.json({ success: true, msg: 'Payin already approved', payin: populated || payin });
+  }
+
+  let groupChatId = claimed.groupId;
   // Credit the group ledger and record a transaction once (idempotent)
-  if (payin.group) {
-    const existingTx = await Transaction.findOne({ payin: payin._id, type: 'credit', coType: 'payin' });
-    const group = await Group.findById(payin.group);
+  if (claimed.group) {
+    const existingTx = await Transaction.findOne({ payin: claimed._id, type: 'credit', coType: 'payin' }).select('_id').lean();
+    const group = await Group.findById(claimed.group);
     if (group) {
       groupChatId = group.groupId;
       if (!existingTx) {
-        const amount = Number(payin.totalAmount?.toString?.() ?? 0);
+        const amount = Number(claimed.totalAmount?.toString?.() ?? 0);
         const current = Number(group.balance?.toString?.() ?? '0');
         group.balance = (current + amount).toFixed(2);
         await group.save();
 
-        await Transaction.create({
-          uid: group.uid,
-          groupId: group.groupId,
-          amount: payin.totalAmount,
-          type: 'credit',
-          coType: 'payin',
-          payin: payin._id,
-        });
+        try {
+          await Transaction.create({
+            uid: group.uid,
+            groupId: group.groupId,
+            amount: claimed.totalAmount,
+            type: 'credit',
+            coType: 'payin',
+            payin: claimed._id,
+          });
+        } catch (err) {
+          // If a concurrent request created the credit transaction, avoid failing approval.
+          if (err?.code !== 11000) throw err;
+        }
       }
     }
   }
 
-  await payin.save();
-  await notifyPayinSuccess({
-    orderId: payin.payOrderNo,
-    amount: payin.deeplinkAmount || payin.totalAmount?.toString?.() || 0,
-    groupId: groupChatId,
-  });
+  try {
+    await notifyPayinSuccess({
+      orderId: claimed.payOrderNo,
+      amount: claimed.deeplinkAmount || claimed.totalAmount?.toString?.() || 0,
+      groupId: groupChatId,
+    });
+  } catch (err) {
+    console.error('notifyPayinSuccess failed after approval:', err?.message || err);
+  }
 
-  const populated = await Payin.findById(payin._id)
-    .populate('group', 'uid groupId groupName status exchangeRate balance')
+  const populated = await Payin.findById(claimed._id)
+    .select(`${PAYIN_DETAIL_SELECT} -merNo`)
+    .populate('group', 'uid groupId groupName status exchangeRate balance -_id')
     .lean();
   return res.json({ success: true, msg: 'Payin approved', payin: populated });
 });

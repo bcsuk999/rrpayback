@@ -18,5 +18,6 @@ const transactionSchema = new mongoose.Schema(
 );
 
 transactionSchema.index({ groupId: 1, createdAt: -1 });
+transactionSchema.index({ payin: 1, type: 1, coType: 1 });
 
 export default mongoose.model('Transaction', transactionSchema);

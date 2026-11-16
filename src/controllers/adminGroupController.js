@@ -33,21 +33,25 @@ export const listGroups = asyncHandler(async (req, res) => {
     filter.$or = matches;
   }
 
+  const includeTotal = String(req.query.includeTotal ?? 'true').toLowerCase() !== 'false';
+
+  const groupsQuery = Group.find(filter)
+    .select('uid groupId groupName exchangeRate status remark balance createdAt updatedAt')
+    .sort({ createdAt: -1, _id: -1 })
+    .skip(skip)
+    .limit(limit)
+    .lean();
+
   const [groups, count] = await Promise.all([
-    Group.find(filter)
-      .select('uid groupId groupName exchangeRate status remark balance createdAt updatedAt')
-      .sort({ createdAt: -1, _id: -1 })
-      .skip(skip)
-      .limit(limit)
-      .lean(),
-    Group.countDocuments(filter),
+    groupsQuery,
+    includeTotal ? Group.countDocuments(filter) : Promise.resolve(null),
   ]);
   return res.json({
     success: true,
-    count,
+    ...(includeTotal ? { count, totalPages: Math.ceil(count / limit) } : {}),
+    hasMore: groups.length === limit,
     page,
     limit,
-    totalPages: Math.ceil(count / limit),
     groups,
   });
 });
