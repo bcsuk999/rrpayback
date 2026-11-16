@@ -6,7 +6,7 @@ import asyncHandler from '../utils/asyncHandler.js';
 const SALT_ROUNDS = 10;
 
 export const registerAdmin = asyncHandler(async (req, res) => {
-  const { mobile, password, role } = req.body ?? {};
+  const { mobile, password } = req.body ?? {};
   if (!mobile || !password) {
     return res.status(400).json({ success: false, msg: 'mobile and password are required' });
   }
@@ -22,8 +22,8 @@ export const registerAdmin = asyncHandler(async (req, res) => {
   const hashed = await bcrypt.hash(String(password), SALT_ROUNDS);
   const admin = await Admin.create({
     mobile: String(mobile).trim(),
-    role: 'user',
-    role: role === 'admin' ? 'admin' : 'admin', // default admin; allow override only to admin for safety
+    password: hashed,
+    role: 'admin',
     status: 'active',
   });
 
