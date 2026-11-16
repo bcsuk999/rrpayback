@@ -46,14 +46,14 @@ function getPayParams(url) {
   return {
     orderId: u.searchParams.get('order_id') || '',
     nonce: u.searchParams.get('nonce') || '',
+    orderNo: u.searchParams.get('orderNo') || u.searchParams.get('orderno') || '',
   };
 }
 
-async function fetchQrPayUrl(payUrl) {
+async function extractFromQuickPay(payUrl) {
   const { orderId, nonce } = getPayParams(payUrl);
-  if (!orderId || !nonce) {
-    throw new Error('missing_order_id_or_nonce');
-  }
+  if (!orderId || !nonce) throw new Error('missing_order_id_or_nonce');
+
   const sign = crypto
     .createHash('md5')
     .update(`${orderId}${nonce}${SIGN_SALT}`)
@@ -73,7 +73,63 @@ async function fetchQrPayUrl(payUrl) {
   }
   const qrPayUrl = json?.data?.qrPayUrl;
   if (!qrPayUrl) throw new Error('missing_qr_pay_url');
-  return { qrPayUrl, raw: json.data };
+
+  const deeplink = await decodeQrImage(qrPayUrl);
+  const parsed = parseUpiDeeplink(deeplink);
+  if (!parsed?.upiId) throw new Error('upi_id_missing_in_deeplink');
+  if (!parsed?.amount) throw new Error('amount_missing_in_deeplink');
+  return parsed;
+}
+
+async function extractFromWalletPay(payUrl) {
+  const u = new URL(payUrl);
+  const orderNo = u.searchParams.get('orderNo') || u.searchParams.get('orderno') || '';
+  if (!orderNo) throw new Error('missing_order_no');
+
+  const endpoint = `${u.origin}/prod-api/api/wallet/getOrder`;
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json;charset=UTF-8',
+      'accept': 'application/json',
+      'user-agent': USER_AGENT,
+      'origin': u.origin,
+      'referer': payUrl,
+    },
+    body: JSON.stringify({ orderNo }),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (json.code !== 200 && json.code !== 0) {
+    throw new Error(json.message || json.msg || `wallet_api_error_${json.code}`);
+  }
+  const data = json.data || {};
+
+  let upiId = (data.upi || data.upiId || data.upi_id || '').trim() || null;
+  let amount = data.payAmount ?? data.amount ?? null;
+  if (amount != null) amount = String(amount).trim();
+  if (amount === '' || amount === 'null' || amount === 'undefined') amount = null;
+
+  // payUrl may contain a UPI intent with pa/am
+  const intent = data.payUrl || data.upiLink || data.payUpiLink || null;
+  if (intent && typeof intent === 'string' && /^upi:\/\//i.test(intent.trim())) {
+    const parsed = parseUpiDeeplink(intent.trim());
+    if (!upiId && parsed?.upiId) upiId = parsed.upiId;
+    if (!amount && parsed?.amount) amount = parsed.amount;
+  }
+
+  if (!upiId) throw new Error('upi_id_missing_in_response');
+  if (!amount) throw new Error('amount_missing_in_response');
+
+  const deeplink = intent && /^upi:\/\//i.test(String(intent).trim())
+    ? String(intent).trim()
+    : `upi://pay?pa=${encodeURIComponent(upiId)}&am=${encodeURIComponent(amount)}&cu=INR`;
+
+  return {
+    deeplink,
+    upiId,
+    amount,
+    payeeName: data.payeeName || data.name || null,
+  };
 }
 
 async function decodeQrImage(imageUrl) {
@@ -94,16 +150,33 @@ async function decodeQrImage(imageUrl) {
 
 export async function extractUpiFromPayUrl(payUrl, { timeoutMs = 15000 } = {}) {
   const started = Date.now();
+  const host = (() => { try { return new URL(payUrl).host; } catch { return null; } })();
   try {
     if (!payUrl || typeof payUrl !== 'string') throw new Error('missing_pay_url');
-    const { qrPayUrl } = await fetchQrPayUrl(payUrl);
-    const deeplink = await decodeQrImage(qrPayUrl);
-    const parsed = parseUpiDeeplink(deeplink);
-    if (!parsed?.upiId) throw new Error('upi_id_missing_in_deeplink');
-    if (!parsed?.amount) throw new Error('amount_missing_in_deeplink');
+    const u = new URL(payUrl);
+    const params = u.searchParams;
+
+    let parsed;
+    if (params.get('order_id') && params.get('nonce')) {
+      parsed = await extractFromQuickPay(payUrl);
+    } else if (params.get('orderNo') || params.get('orderno') || /\/payment/i.test(u.pathname)) {
+      parsed = await extractFromWalletPay(payUrl);
+    } else {
+      // Try quickPay first, then wallet as fallback
+      try {
+        parsed = await extractFromQuickPay(payUrl);
+      } catch (e1) {
+        try {
+          parsed = await extractFromWalletPay(payUrl);
+        } catch (e2) {
+          throw e1; // report primary error
+        }
+      }
+    }
+
     log.info({
       event: 'upi.extract.success',
-      payUrlHost: (() => { try { return new URL(payUrl).host; } catch { return null; } })(),
+      payUrlHost: host,
       upiId: parsed.upiId,
       amount: parsed.amount,
       durationMs: Date.now() - started,
@@ -112,7 +185,7 @@ export async function extractUpiFromPayUrl(payUrl, { timeoutMs = 15000 } = {}) {
   } catch (err) {
     log.warn({
       event: 'upi.extract.failed',
-      payUrlHost: (() => { try { return new URL(payUrl).host; } catch { return null; } })(),
+      payUrlHost: host,
       error: err?.message,
       durationMs: Date.now() - started,
     }, 'failed to extract upi from deeplink');
