@@ -47,10 +47,22 @@ async function notifyOwnerError(ctx, config, details = {}) {
   if (details.error) lines.push(`Error: ${escapeHtml(details.error)}`);
   const text = lines.join('\n');
   try {
-    await ctx.api.sendMessage(ownerId, text, { parse_mode: 'HTML', disable_web_page_preview: true });
-    log.info({ event: 'bot.owner_notify.sent', ...ctxMeta(ctx), orderId: details.orderId || null }, 'owner notified of command error');
+    await ctx.api.sendMessage({
+      chat_id: ownerId,
+      text,
+      parse_mode: 'HTML',
+      disable_web_page_preview: true,
+    });
+    log.info({ event: 'bot.owner_notify.sent', ...ctxMeta(ctx), ownerId, orderId: details.orderId || null }, 'owner notified of command error');
   } catch (err) {
-    log.error({ event: 'bot.owner_notify.failed', ...ctxMeta(ctx), error: err?.message, response: err?.response?.body || err?.description }, 'failed to notify owner');
+    log.error({
+      event: 'bot.owner_notify.failed',
+      ...ctxMeta(ctx),
+      ownerId,
+      error: err?.message,
+      description: err?.response?.body?.description || err?.description,
+      response: err?.response?.body || err?.description,
+    }, 'failed to notify owner');
   }
 }
 
