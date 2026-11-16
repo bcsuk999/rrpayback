@@ -3,7 +3,7 @@ const require = createRequire(import.meta.url);
 const { Bot } = require('node-telegram-bot-api');
 
 import { loadConfig, validateConfig } from './config.js';
-import { register } from './commands.js';
+import { register, restoreDepositMessageExpirations } from './commands.js';
 
 let bot = null;
 let config = null;
@@ -77,6 +77,12 @@ export async function startBot() {
     });
 
     register(bot, config);
+    try {
+      const restored = await restoreDepositMessageExpirations();
+      console.log(`[bot] restored ${restored} pending deposit expiry timer(s)`);
+    } catch (err) {
+      console.error('[bot] failed to restore deposit expiry timers:', err?.message);
+    }
 
     if (typeof bot.catch === 'function') {
       bot.catch((err, ctx) => {

@@ -33,6 +33,13 @@ const payinSchema = new mongoose.Schema(
     // Extracted UPI/VPA and amount when available from provider response or deeplink.
     upiId: { type: String },
     deeplinkAmount: { type: String },
+    telegramChatId: { type: Number },
+    telegramMessageId: { type: Number },
+    depositExpiresAt: { type: Date },
+    depositMessageStatus: {
+      type: String,
+      enum: ['pending', 'expired', 'completed'],
+    },
 
     status: {
       type: String,

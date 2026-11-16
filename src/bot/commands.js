@@ -211,18 +211,47 @@ const depositExpiryTimers = new Map();
 let _config = null;
 let _bot = null;
 
-function rememberDepositMessage(orderNo, chatId, messageId, details) {
+function scheduleDepositExpiry(orderNo, reference, delay) {
+  clearDepositExpiryTimer(orderNo);
+  const timer = setTimeout(() => {
+    void expireDepositMessage(String(orderNo), reference);
+  }, Math.max(0, delay));
+  depositExpiryTimers.set(String(orderNo), timer);
+}
+
+async function rememberDepositMessage(orderNo, chatId, messageId, details) {
   if (!orderNo || !chatId || !messageId) return;
   const key = String(orderNo);
   clearDepositExpiryTimer(key);
 
   const reference = { chatId, messageId, ...details, status: "pending" };
   depositMessages.set(key, reference);
-  const delay = Math.max(0, details.expiresAt.getTime() - Date.now());
-  const timer = setTimeout(() => {
-    void expireDepositMessage(key, reference);
-  }, delay);
-  depositExpiryTimers.set(key, timer);
+  scheduleDepositExpiry(key, reference, details.expiresAt.getTime() - Date.now());
+
+  try {
+    const result = await Payin.updateOne(
+      { payOrderNo: key },
+      {
+        $set: {
+          telegramChatId: chatId,
+          telegramMessageId: messageId,
+          depositExpiresAt: details.expiresAt,
+          depositMessageStatus: "pending",
+        },
+      },
+    );
+    if (!result.matchedCount) {
+      log.warn(
+        { event: "bot.deposit.reference_not_persisted", orderNo: key },
+        "payin record missing while saving deposit message reference",
+      );
+    }
+  } catch (err) {
+    log.error(
+      { event: "bot.deposit.reference_persist_failed", orderNo: key, err },
+      "failed to persist deposit message reference",
+    );
+  }
 }
 
 async function expireDepositMessage(orderNo, reference) {
@@ -231,7 +260,7 @@ async function expireDepositMessage(orderNo, reference) {
     reference.status !== "pending"
   )
     return;
-  reference.status = "expired";
+  reference.status = "expiring";
   depositExpiryTimers.delete(orderNo);
   const deposit = buildDepositReply({
     orderId: orderNo,
@@ -247,21 +276,91 @@ async function expireDepositMessage(orderNo, reference) {
       text: deposit.text,
       ...deposit.options,
     });
-    log.info(
-      { event: "bot.deposit.expired", orderNo, chatId: reference.chatId },
-      "deposit message expired",
+  } catch (err) {
+    if (reference.status !== "expiring") return;
+    const description = String(err?.description || err?.message || "");
+    if (!/message is not modified/i.test(description)) {
+      reference.status = "pending";
+      reference.expiryAttempts = (reference.expiryAttempts || 0) + 1;
+      if (reference.expiryAttempts <= 3) {
+        scheduleDepositExpiry(orderNo, reference, 60_000);
+      }
+      log.error(
+        {
+          event: "bot.deposit.expire_edit_failed",
+          orderNo,
+          chatId: reference.chatId,
+          err,
+        },
+        "failed to edit expired deposit message",
+      );
+      return;
+    }
+  }
+
+  if (reference.status !== "expiring") return;
+  reference.status = "expired";
+  await persistDepositMessageStatus(orderNo, "expired");
+  log.info(
+    { event: "bot.deposit.expired", orderNo, chatId: reference.chatId },
+    "deposit message expired",
+  );
+}
+
+async function persistDepositMessageStatus(orderNo, status) {
+  try {
+    const filter = { payOrderNo: String(orderNo) };
+    if (status === "expired") filter.status = "pending";
+    await Payin.updateOne(
+      filter,
+      { $set: { depositMessageStatus: status } },
     );
   } catch (err) {
     log.error(
       {
-        event: "bot.deposit.expire_edit_failed",
-        orderNo,
-        chatId: reference.chatId,
+        event: "bot.deposit.status_persist_failed",
+        orderNo: String(orderNo),
+        status,
         err,
       },
-      "failed to edit expired deposit message",
+      "failed to persist deposit slip status",
     );
   }
+}
+
+async function restoreDepositMessageExpirations() {
+  const records = await Payin.find({
+    status: "pending",
+    depositMessageStatus: "pending",
+    depositExpiresAt: { $exists: true },
+    telegramChatId: { $exists: true },
+    telegramMessageId: { $exists: true },
+  })
+    .select(
+      "payOrderNo telegramChatId telegramMessageId depositExpiresAt deeplinkAmount totalAmount upiId",
+    )
+    .lean();
+
+  for (const record of records) {
+    const key = String(record.payOrderNo);
+    if (depositMessages.has(key)) continue;
+    const reference = {
+      chatId: record.telegramChatId,
+      messageId: record.telegramMessageId,
+      amount: record.deeplinkAmount || record.totalAmount?.toString?.() || "0",
+      upiId: record.upiId,
+      expiresAt: new Date(record.depositExpiresAt),
+      status: "pending",
+    };
+    depositMessages.set(key, reference);
+    scheduleDepositExpiry(
+      key,
+      reference,
+      reference.expiresAt.getTime() - Date.now(),
+    );
+  }
+
+  return records.length;
 }
 
 async function notifyPayinSuccess({ orderId, amount, groupId }) {
@@ -269,6 +368,7 @@ async function notifyPayinSuccess({ orderId, amount, groupId }) {
   if (reference) {
     reference.status = "completed";
     clearDepositExpiryTimer(orderId);
+    await persistDepositMessageStatus(orderId, "completed");
     const deposit = buildDepositReply({
       orderId,
       amount: reference.amount,
@@ -548,7 +648,7 @@ async function handleOrder(ctx, config) {
       });
       const sentMsg = await editOrSend(deposit.text, deposit.options);
       if (orderNo && (sentMsg?.message_id || processingMsg?.message_id)) {
-        rememberDepositMessage(
+        await rememberDepositMessage(
           orderNo,
           chat.id,
           sentMsg?.message_id || processingMsg.message_id,
@@ -773,6 +873,7 @@ async function handleStatus(ctx) {
       if (reference) {
         reference.status = "completed";
         clearDepositExpiryTimer(orderNo);
+        await persistDepositMessageStatus(orderNo, "completed");
       }
       const deposit = buildDepositReply({
         orderId,
@@ -809,6 +910,7 @@ async function handleStatus(ctx) {
       if (reference) {
         reference.status = "expired";
         clearDepositExpiryTimer(orderNo);
+        await persistDepositMessageStatus(orderNo, "expired");
       }
       const deposit = buildDepositReply({
         orderId,
@@ -1102,6 +1204,7 @@ function register(bot, config) {
 
 export {
   register,
+  restoreDepositMessageExpirations,
   handleOrder,
   handleStatus,
   handleQ,
