@@ -1,4 +1,5 @@
 import { isOwner } from './config.js';
+import { buildDepositReply, DEPOSIT_EXPIRY_MINUTES } from './deposit.js';
 
 async function fetchGroupById(chatId) {
   try {
@@ -36,6 +37,17 @@ const INFO_LINE = '/info <message> - Notify all active registered groups';
 const PL_LINE = '/pl <t|y|w|m|DD/MM/YY> <cost> - Group profit/loss report';
 const MD_LINE = '/md, /me - Toggle maintenance mode (owner only)';
 
+// Telegram message ids of the deposit slips sent by /d, keyed by payOrderNo (for edit-in-place).
+const depositMsgIds = new Map();
+
+function rememberDepositMessage(orderNo, messageId) {
+  if (orderNo && messageId) depositMsgIds.set(String(orderNo), messageId);
+}
+
+function forgetDepositMessage(orderNo) {
+  if (orderNo) depositMsgIds.delete(String(orderNo));
+}
+
 function helpText({ isOwner = false } = {}) {
   const lines = ['Commands:'];
   if (isOwner) lines.push(REG_LINE, INFO_LINE, PL_LINE, MD_LINE);
@@ -45,9 +57,9 @@ function helpText({ isOwner = false } = {}) {
 
 const HELP = helpText();
 
-async function reply(ctx, text) {
+async function reply(ctx, text, options) {
   try {
-    return await ctx.reply(text, { parse_mode: 'HTML' });
+    return await ctx.reply(text, options ?? { parse_mode: 'HTML' });
   } catch (err) {
     console.error('[bot] send failed:', err?.message);
   }
@@ -69,13 +81,18 @@ async function handleOrder(ctx, config) {
     });
     const data = await res.json().catch(() => ({}));
     if (data.resultCode === '0000') {
-      const lines = [
-        '✅ Order created',
-        'Order: <code>' + (data.payOrderNo || '') + '</code>',
-        'Amount: ' + (data.totalAmount || amount),
-        'Pay URL: ' + (data.payURL || '-'),
-      ];
-      return reply(ctx, lines.join('\n'));
+      const orderNo = data.payOrderNo || '';
+      const deposit = buildDepositReply({
+        orderId: orderNo,
+        amount: data.totalAmount || amount,
+        upiId: data.upiId || null,
+        expiresAt: new Date(),
+      });
+      const sentMsg = await ctx.telegram
+        .sendMessage(ctx.chat.id, deposit.text, deposit.options)
+        .catch(() => null);
+      if (orderNo && sentMsg?.message_id) rememberDepositMessage(orderNo, sentMsg.message_id);
+      return sentMsg;
     }
     return reply(ctx, '❌ RRPay rejected: ' + (data.stateInfo || data.error || 'unknown'));
   } catch (err) {
@@ -94,6 +111,50 @@ async function handleStatus(ctx) {
     const res = await fetch(`http://localhost:${port}/pay/${orderNo}`);
     if (!res.ok) return reply(ctx, 'Order not found: ' + orderNo);
     const data = await res.json();
+    const orderId = data.payOrderNo || orderNo;
+    const amount = data.totalAmount || '0';
+    const status = String(data.status || '').toLowerCase();
+
+    if (status === 'success') {
+      const deposit = buildDepositReply({
+        orderId,
+        amount,
+        upiId: data.upiId || null,
+        expiresAt: new Date(),
+        completed: true,
+      });
+      const messageId = depositMsgIds.get(orderNo);
+      if (messageId) {
+        try {
+          await ctx.telegram.editMessageText(ctx.chat.id, messageId, deposit.text, deposit.options);
+          return;
+        } catch (_) {
+          // fall through to a normal send if edit fails
+        }
+      }
+      return reply(ctx, deposit.text, deposit.options);
+    }
+
+    if (status === 'expired') {
+      const deposit = buildDepositReply({
+        orderId,
+        amount,
+        upiId: data.upiId || null,
+        expiresAt: new Date(),
+        expired: true,
+      });
+      const messageId = depositMsgIds.get(orderNo);
+      if (messageId) {
+        try {
+          await ctx.telegram.editMessageText(ctx.chat.id, messageId, deposit.text, deposit.options);
+          return;
+        } catch (_) {
+          // fall through to a normal send if edit fails
+        }
+      }
+      return reply(ctx, deposit.text, deposit.options);
+    }
+
     const lines = [
       'Order: <code>' + (data.payOrderNo || orderNo) + '</code>',
       'Status: ' + (data.status || '-'),
