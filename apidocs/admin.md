@@ -22,7 +22,7 @@ This document covers the **complete Admin API** of the RRPay backend, including:
 
 ### `POST /admin/auth/register`
 
-Register a new admin account. **Does not return a token** — after registering, call the login endpoint to obtain a JWT.
+Register a new account. New accounts are always created with the **`user`** role, so they **cannot log in** until promoted to `admin`. **Does not return a token.**
 
 **Auth:** None (public)
 
@@ -30,15 +30,14 @@ Register a new admin account. **Does not return a token** — after registering,
 
 | Parameter | Type   | Required | Remarks                                    |
 | :-------- | :----- | :------- | :----------------------------------------- |
-| mobile    | String | Yes      | Admin mobile number (unique, trimmed)     |
+| mobile    | String | Yes      | Mobile number (unique, trimmed)            |
 | password  | String | Yes      | Min 6 characters                          |
-| role      | String | No       | Optional; only `admin` is ever persisted |
 
 **Validation & Errors**
 
 | Status | `success` | `msg`                                    |
 | :----- | :-------- | :--------------------------------------- |
-| 201    | true      | `Admin registered successfully`         |
+| 201    | true      | `Registered successfully`               |
 | 400    | false     | `mobile and password are required`     |
 | 400    | false     | `password must be at least 6 characters` |
 | 409    | false     | `mobile already registered`             |
@@ -48,15 +47,19 @@ Register a new admin account. **Does not return a token** — after registering,
 ```json
 {
   "success": true,
-  "msg": "Admin registered successfully",
+  "msg": "Registered successfully",
   "admin": {
     "id": "507f1f77bcf86cd799439011",
     "mobile": "919876543210",
-    "role": "admin",
+    "role": "user",
     "status": "active"
   }
 }
 ```
+
+> **Note:** Registration always creates a `user`. To grant admin access, promote the
+> account's `role` to `admin` directly in the database (or via an admin provisioning
+> script). `POST /admin/auth/login` rejects non-admin accounts with `403`.
 
 ---
 
@@ -235,7 +238,7 @@ Update an existing payment group (status, remark, exchange rate, group name).
 
 | Method   | URL                        | Auth | Description                 |
 | :------- | :------------------------- | :--- | :-------------------------- |
-| POST     | `/admin/auth/register`    | No   | Register an admin           |
+| POST     | `/admin/auth/register`    | No   | Register a user account     |
 | POST     | `/admin/auth/login`       | No   | Admin login → returns JWT  |
 | GET      | `/admin/groups`           | Yes  | List all groups            |
 | PATCH    | `/admin/groups/:id`       | Yes  | Update a group             |

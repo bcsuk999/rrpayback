@@ -23,14 +23,14 @@ export const registerAdmin = asyncHandler(async (req, res) => {
   const admin = await Admin.create({
     mobile: String(mobile).trim(),
     password: hashed,
-    role: 'admin',
+    role: 'user',
     status: 'active',
   });
 
   // No JWT on register — login to obtain a token.
   return res.status(201).json({
     success: true,
-    msg: 'Admin registered successfully',
+    msg: 'Registered successfully',
     admin: { id: admin._id, mobile: admin.mobile, role: admin.role, status: admin.status },
   });
 });
