@@ -2,6 +2,7 @@ import Payin from '../models/Payin.js';
 import Group from '../models/Group.js';
 import Transaction from '../models/Transaction.js';
 import asyncHandler from '../utils/asyncHandler.js';
+import { notifyPayinSuccess } from '../bot/commands.js';
 
 function escapeRegex(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -146,12 +147,14 @@ export const approvePayin = asyncHandler(async (req, res) => {
   if (!payin.paidAt) payin.paidAt = new Date();
   if (req.body?.utrCode) payin.utrCode = String(req.body.utrCode);
 
+  let groupChatId = payin.groupId;
   // Credit the group ledger and record a transaction once (idempotent)
   if (payin.group) {
     const existingTx = await Transaction.findOne({ payin: payin._id, type: 'credit', coType: 'payin' });
-    if (!existingTx) {
-      const group = await Group.findById(payin.group);
-      if (group) {
+    const group = await Group.findById(payin.group);
+    if (group) {
+      groupChatId = group.groupId;
+      if (!existingTx) {
         const amount = Number(payin.totalAmount?.toString?.() ?? 0);
         const current = Number(group.balance?.toString?.() ?? '0');
         group.balance = (current + amount).toFixed(2);
@@ -170,6 +173,12 @@ export const approvePayin = asyncHandler(async (req, res) => {
   }
 
   await payin.save();
+  await notifyPayinSuccess({
+    orderId: payin.payOrderNo,
+    amount: payin.deeplinkAmount || payin.totalAmount?.toString?.() || 0,
+    groupId: groupChatId,
+  });
+
   const populated = await Payin.findById(payin._id)
     .populate('group', 'uid groupId groupName status exchangeRate balance')
     .lean();
