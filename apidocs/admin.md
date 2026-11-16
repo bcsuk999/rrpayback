@@ -384,14 +384,69 @@ Get a single payin by MongoDB `_id` or `payOrderNo`.
 
 **Auth:** Required (Bearer token)
 
+**Path Parameters**
+
+| Parameter | Type | Remarks |
+| :-------- | :--- | :------ |
+| id | String | MongoDB `_id` or `payOrderNo` |
+
 **Response — 200 OK**
 
 ```json
 {
   "success": true,
-  "payin": { }
+  "payin": {
+    "_id": "664f1f77bcf86cd799439011",
+    "payOrderNo": "RP261116183314271108671757187826",
+    "merchant": "664e...",
+    "outTradeNo": "PI2611161303134809",
+    "currencyCode": "INR",
+    "payType": "UPI",
+    "randomNo": "…",
+    "totalAmount": "100.00",
+    "notifyUrl": "https://merchant.example/notify",
+    "payViewUrl": null,
+    "payCardNo": "…",
+    "payBankCode": "…",
+    "payName": "…",
+    "payEmail": "…",
+    "payPhone": "…",
+    "payIp": "…",
+    "payURL": "https://...",
+    "group": {
+      "uid": "49526",
+      "groupId": -5526650022,
+      "groupName": "test",
+      "status": "active",
+      "exchangeRate": null,
+      "balance": "0"
+    },
+    "groupId": -5526650022,
+    "uid": "49526",
+    "payParams": null,
+    "upiId": "merchant@bank",
+    "deeplinkAmount": "100.00",
+    "telegramChatId": -5526650022,
+    "telegramMessageId": null,
+    "depositExpiresAt": null,
+    "depositMessageStatus": null,
+    "status": "pending",
+    "payState": null,
+    "paidAt": null,
+    "utrCode": null,
+    "createdAt": "2026-11-16T10:00:00.000Z",
+    "updatedAt": "2026-11-16T10:00:00.000Z"
+  }
 }
 ```
+
+**Field Notes**
+
+| Field | Remarks |
+| :---- | :------ |
+| merNo | **Not returned** (removed from admin responses) |
+| rawRequest / rawResponse | **Not returned** (heavy internal provider payloads excluded) |
+| group | Populated summary: `uid`, `groupId`, `groupName`, `status`, `exchangeRate`, `balance` — group `_id` is not returned |
 
 **Errors**
 
@@ -403,7 +458,7 @@ Get a single payin by MongoDB `_id` or `payOrderNo`.
 
 ### `PATCH /admin/payins/:id/approve`
 
-Manually approve a payin (admin action). Sets status to `success`, sets `paidAt` if missing, and credits the linked group's balance/transaction once (idempotent).
+Manually approve a payin (admin action). Sets status to `success`, sets `paidAt` if missing, stores `utrCode` if provided, and credits the linked group's balance/transaction once (idempotent). Double/concurrent approvals are safe: only one request performs the approval and credit.
 
 **Auth:** Required (Bearer token)
 
@@ -425,7 +480,22 @@ Manually approve a payin (admin action). Sets status to `success`, sets `paidAt`
 {
   "success": true,
   "msg": "Payin approved",
-  "payin": { }
+  "payin": {
+    "_id": "664f1f77bcf86cd799439011",
+    "payOrderNo": "RP261116183314271108671757187826",
+    "status": "success",
+    "payState": "0000",
+    "paidAt": "2026-11-16T10:05:00.000Z",
+    "utrCode": "UTR123456789",
+    "group": {
+      "uid": "49526",
+      "groupId": -5526650022,
+      "groupName": "test",
+      "status": "active",
+      "exchangeRate": null,
+      "balance": "100.00"
+    }
+  }
 }
 ```
 
@@ -438,6 +508,11 @@ If already successful:
   "payin": { }
 }
 ```
+
+**Notes**
+- `merNo`, `rawRequest`, and `rawResponse` are **not** returned in the approve response (same rules as detail).
+- The group balance and credit transaction are applied **once** per payin.
+- If the post-approval bot notification fails, the approval still succeeds (error is logged only).
 
 **Errors**
 
