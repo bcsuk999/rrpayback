@@ -233,9 +233,10 @@ export const createPayinOrder = asyncHandler(async (req, res) => {
       // Convert to rejection for caller so bot does not send slip
       responseBody = {
         resultCode: '9999',
-        stateInfo: 'UPI ID not available yet. Please try again.',
+        stateInfo: `UPI/deeplink unavailable: ${extractionError}`,
+        reason: extractionError,
         payOrderNo: responseBody.payOrderNo,
-        payURL: payUrl,
+        payURL: payUrl || null,
       };
       responseText = JSON.stringify(responseBody);
     }

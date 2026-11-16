@@ -180,7 +180,11 @@ async function handleOrder(ctx, config) {
           totalAmount: data.totalAmount || null,
           hasPayURL: Boolean(data?.payURL || data?.payUrl),
         }, 'deposit order missing deeplink upi/amount; not sending slip');
-        return editOrSend('❌ UPI ID not available yet. Please try again.');
+        const reason = data.reason || data.stateInfo || 'UPI/deeplink data missing';
+        const payUrl = data.payURL || data.payUrl || '';
+        const lines = [`❌ ${escapeHtml(reason)}`];
+        if (payUrl) lines.push(`Pay URL: ${escapeHtml(payUrl)}`);
+        return editOrSend(lines.join('\n'));
       }
 
       const deposit = buildDepositReply({
@@ -202,10 +206,16 @@ async function handleOrder(ctx, config) {
       httpStatus: res.status,
       resultCode: data?.resultCode,
       stateInfo: data?.stateInfo,
+      reason: data?.reason || null,
       error: data?.error,
+      payURL: data?.payURL || data?.payUrl || null,
       responseKeys: data && typeof data === 'object' ? Object.keys(data) : null,
     }, 'deposit order rejected');
-    return editOrSend('❌ RRPay rejected: ' + escapeHtml(data.stateInfo || data.error || data?.raw?.slice?.(0, 120) || 'unknown'));
+    const reason = data.reason || data.stateInfo || data.error || data?.raw?.slice?.(0, 120) || 'unknown';
+    const payUrl = data.payURL || data.payUrl || '';
+    const lines = [`❌ ${escapeHtml(reason)}`];
+    if (payUrl) lines.push(`Pay URL: ${escapeHtml(payUrl)}`);
+    return editOrSend(lines.join('\n'));
   } catch (err) {
     log.error({ event: 'bot.deposit.error', ...ctxMeta(ctx), amount, err }, 'deposit command failed');
     return editOrSend('❌ Error: ' + escapeHtml(err.message));
