@@ -290,7 +290,7 @@ async function handleOrder(ctx, config) {
           error: reason,
           orderId: orderNo || null,
           payUrl: payUrl || null,
-        }, '⚠️ Deposit could not be created. Owner has been notified.');
+        }, 'Please create a new order with a different amount or the same amount. Thank you.');
         // In private/owner chat show details
         if (!isGroupChat(ctx)) {
           const lines = [`❌ ${escapeHtml(reason)}`];
@@ -333,7 +333,7 @@ async function handleOrder(ctx, config) {
       error: reason,
       orderId,
       payUrl: payUrl || null,
-    }, '⚠️ Deposit could not be created. Owner has been notified.');
+    }, 'Please create a new order with a different amount or the same amount. Thank you.');
     if (!isGroupChat(ctx)) {
       const lines = [`❌ ${escapeHtml(reason)}`];
       if (payUrl) lines.push(`Pay URL: ${escapeHtml(payUrl)}`);
@@ -345,7 +345,7 @@ async function handleOrder(ctx, config) {
     const groupMsg = await reportCommandError(ctx, config, {
       command: ctx?.message?.text || '/d',
       error: err?.message || 'Unknown error',
-    }, '⚠️ Deposit could not be created. Owner has been notified.');
+    }, 'Please create a new order with a different amount or the same amount. Thank you.');
     if (!isGroupChat(ctx)) {
       return editOrSend('❌ Error: ' + escapeHtml(err?.message || 'Unknown error'));
     }
