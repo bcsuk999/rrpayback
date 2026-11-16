@@ -687,6 +687,17 @@ Manually create a `credit` or `debit` transaction for any group/user by UID. Upd
 - `credit` adds the amount to the group balance.
 - `debit` subtracts the amount; the debit is rejected if the balance is insufficient (no negative balance).
 - The balance update is atomic, and the transaction stores `coType: "adjustment"` plus the `balanceAfter` snapshot.
+- A **Telegram bot notification** is sent to the group chat (`groupId`) after the transaction is saved:
+  ```
+  Manual credit 🔻
+
+  Type: CREDIT🔻
+  Amount: ₹100.50
+  Balance: ₹200.50
+  Remark: Manual bonus
+  By: 919876543210
+  ```
+  (Use `Manual debit 🔺` / `DEBIT🔺` for debits.) If the bot is unavailable or sending fails, the transaction still succeeds — the failure is only logged.
 
 **Errors**
 

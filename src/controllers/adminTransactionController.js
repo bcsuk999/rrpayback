@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import Transaction from '../models/Transaction.js';
 import Group from '../models/Group.js';
 import asyncHandler from '../utils/asyncHandler.js';
+import { notifyManualTransaction } from '../bot/commands.js';
 
 const Decimal128 = mongoose.Types.Decimal128;
 
@@ -153,6 +154,21 @@ export const createTransaction = asyncHandler(async (req, res) => {
     balanceAfter: updatedGroup.balance,
     remark: note,
   });
+
+  try {
+    await notifyManualTransaction({
+      groupId: updatedGroup.groupId,
+      uid: updatedGroup.uid,
+      type: normalizedType,
+      amount: amountStr,
+      balanceAfter: updatedGroup.balance?.toString?.(),
+      remark: note,
+      adminMobile: req.admin?.mobile,
+    });
+  } catch (err) {
+    // Notification must not fail the transaction; it is already recorded.
+    console.error('notifyManualTransaction failed:', err?.message || err);
+  }
 
   return res.status(201).json({
     success: true,

@@ -3,6 +3,7 @@ import {
   buildDepositReply,
   buildSuccessNotice,
   DEPOSIT_EXPIRY_MINUTES,
+  formatInr,
 } from "./deposit.js";
 import logger from "../utils/logger.js";
 import Payin from "../models/Payin.js";
@@ -443,6 +444,51 @@ async function notifyPayinSuccess({ orderId, amount, groupId }) {
     log.error(
       { event: "bot.payin_notice.failed", orderNo: orderId, groupId, err },
       "failed to send payin success notice",
+    );
+  }
+}
+
+async function notifyManualTransaction({ groupId, uid, type, amount, balanceAfter, remark, adminMobile }) {
+  if (!groupId) {
+    log.warn(
+      { event: "bot.manual_tx.skipped", uid, reason: "missing_group_id" },
+      "manual transaction notice skipped",
+    );
+    return;
+  }
+  if (!_bot?.api?.sendMessage) {
+    log.warn(
+      { event: "bot.manual_tx.skipped", uid, groupId, reason: "bot_unavailable" },
+      "manual transaction notice skipped",
+    );
+    return;
+  }
+
+  const isDebit = type === "debit";
+  const lines = [
+    isDebit ? "Manual debit 🔺" : "Manual credit 🔻",
+    "",
+    `Type: ${isDebit ? "DEBIT🔺" : "CREDIT🔻"}`,
+    `Amount: ${formatInr(amount)}`,
+    balanceAfter !== undefined && balanceAfter !== null ? `Balance: ${formatInr(balanceAfter)}` : null,
+    remark ? `Remark: ${escapeHtml(remark)}` : null,
+    adminMobile ? `By: ${escapeHtml(adminMobile)}` : null,
+  ].filter(Boolean);
+
+  try {
+    await _bot.api.sendMessage({
+      chat_id: groupId,
+      text: lines.join("\n"),
+      parse_mode: "HTML",
+    });
+    log.info(
+      { event: "bot.manual_tx.sent", uid, groupId, type },
+      "manual transaction notice sent",
+    );
+  } catch (err) {
+    log.error(
+      { event: "bot.manual_tx.failed", uid, groupId, type, err },
+      "failed to send manual transaction notice",
     );
   }
 }
@@ -1211,6 +1257,7 @@ export {
   HELP,
   reply,
   notifyPayinSuccess,
+  notifyManualTransaction,
   getRegisteredGroup,
   fetchGroupById,
 };
