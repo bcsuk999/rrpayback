@@ -53,6 +53,7 @@ export const registerGroup = asyncHandler(async (req, res) => {
     groupId: gid,
     groupName: groupName || '',
     status: 'active',
+    exchangeRate: null,
   });
 
   return res.status(201).json({ _id: group._id, uid: group.uid, groupId: group.groupId, groupName: group.groupName, status: group.status });

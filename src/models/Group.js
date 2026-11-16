@@ -5,7 +5,7 @@ const groupSchema = new mongoose.Schema(
     uid: { type: String, required: true, unique: true, index: true },
     groupId: { type: Number, required: true, unique: true, index: true },
     groupName: { type: String, trim: true, default: '' },
-    exchangeRate: { type: Number, default: 1 },
+    exchangeRate: { type: Number, default: null },
     status: {
       type: String,
       enum: ['active', 'suspended', 'banned'],

@@ -158,7 +158,7 @@ List all payment groups.
       "uid": "merchant-uid-123",
       "groupId": 1001,
       "groupName": "Payroll Group",
-      "exchangeRate": 1,
+      "exchangeRate": null,
       "status": "active",
       "remark": "",
       "balance": "0",
@@ -176,7 +176,7 @@ List all payment groups.
 | uid           | String | Merchant group UID (unique)                   |
 | groupId      | Number | Merchant group ID (unique)                    |
 | groupName    | String | Group display name                            |
-| exchangeRate | Number | Exchange rate applied to the group           |
+| exchangeRate | Number \| null | Exchange rate applied to the group (`null` until set) |
 | status       | String | `active` \| `suspended` \| `banned`          |
 | remark       | String | Admin remark                                  |
 | balance      | String | Decimal128 balance                             |
