@@ -71,6 +71,8 @@ export const handlePayinNotify = asyncHandler(async (req, res) => {
           type: 'credit',
           coType: 'payin',
           payin: payin._id,
+          balanceAfter: group.balance,
+          remark: `Payin ${payin.payOrderNo} confirmed by provider`,
         });
       }
     }

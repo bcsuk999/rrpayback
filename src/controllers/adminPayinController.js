@@ -172,6 +172,8 @@ export const approvePayin = asyncHandler(async (req, res) => {
             type: 'credit',
             coType: 'payin',
             payin: claimed._id,
+            balanceAfter: group.balance,
+            remark: `Payin ${claimed.payOrderNo} approved`,
           });
         } catch (err) {
           // If a concurrent request created the credit transaction, avoid failing approval.
