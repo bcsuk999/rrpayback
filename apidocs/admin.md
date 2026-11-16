@@ -279,7 +279,7 @@ Search and list payins with filters and pagination.
 
 | Parameter | Type | Remarks |
 | :-------- | :--- | :------ |
-| q | String | Exact match across identifiers/codes; case-sensitive prefix match for `upiId` and `payURL`, plus exact numeric `groupId` |
+| q | String | Exact match across identifiers/codes; case-sensitive prefix match for `upiId` and `payURL`, plus exact numeric `groupId` (max 128 chars) |
 | groupId | Number | Filter by Telegram/group ID |
 | orderId / payOrderNo | String | Filter by pay order number |
 | outTradeNo | String | Filter by merchant out trade number |
@@ -291,11 +291,12 @@ Search and list payins with filters and pagination.
 | payState | String | Provider pay state code |
 | currencyCode | String | Currency code |
 | payType | String | Payment type |
-| merNo | String | Merchant number |
+| merNo | String | Merchant number filter (filter only — `merNo` is not returned in results) |
 | createdFrom / from | Date/String | Created at >= value (`YYYY-MM-DD` or ISO datetime) |
 | createdTo / to | Date/String | Created at <= value (`YYYY-MM-DD` treated as end-of-day) |
 | updatedFrom | Date/String | Updated at >= value |
 | updatedTo | Date/String | Updated at <= value |
+| includeTotal | Boolean | `true` (default): include `total` + `totalPages`. `false`: skip the count query (faster) — `total`/`totalPages` are omitted |
 | page | Number | Page number (default: `1`) |
 | limit | Number | Page size (default: `20`, max: `200`) |
 
@@ -308,13 +309,13 @@ Search and list payins with filters and pagination.
   "limit": 20,
   "total": 1,
   "totalPages": 1,
+  "hasMore": false,
   "payins": [
     {
       "_id": "664f1f77bcf86cd799439011",
-      "payOrderNo": "PO123",
-      "outTradeNo": "PI...",
-      "merNo": "M123",
-      "uid": "82120",
+      "payOrderNo": "RP261116183314271108671757187826",
+      "outTradeNo": "PI2611161303134809",
+      "uid": "49526",
       "groupId": -5526650022,
       "upiId": "merchant@bank",
       "totalAmount": "100.00",
@@ -329,19 +330,54 @@ Search and list payins with filters and pagination.
       "createdAt": "2026-11-16T10:00:00.000Z",
       "updatedAt": "2026-11-16T10:00:00.000Z",
       "group": {
-        "_id": "...",
-        "uid": "82120",
         "groupId": -5526650022,
-        "groupName": "test",
-        "status": "active",
-        "exchangeRate": null
+        "groupName": "test"
       }
     }
   ]
 }
 ```
 
-> Notes: `payins` includes stored payin fields (e.g. `notifyUrl`, `payViewUrl`, `rawRequest`, `rawResponse`, etc.) plus populated `group` summary when linked.
+**Response with `includeTotal=false` — 200 OK**
+
+```json
+{
+  "success": true,
+  "page": 1,
+  "limit": 20,
+  "hasMore": true,
+  "payins": [ ... ]
+}
+```
+
+**Payin Fields Returned in Search Results**
+
+| Field | Type | Remarks |
+| :---- | :--- | :------ |
+| _id | String | MongoDB `_id` of the payin |
+| payOrderNo | String | Our system's payment order number |
+| outTradeNo | String | Merchant's own order/reference number |
+| uid | String | Group UID |
+| groupId | Number | Telegram/group ID |
+| upiId | String \| null | Extracted UPI/VPA |
+| totalAmount | String (Decimal128) | Payin amount |
+| deeplinkAmount | String \| null | Amount from deeplink/QR |
+| currencyCode | String | Currency code |
+| payType | String | Payment type |
+| status | String | `pending` \| `success` \| `failed` \| `expired` |
+| payState | String \| null | Provider pay state code |
+| payURL | String | Pay URL |
+| utrCode | String \| null | UTR/reference code |
+| paidAt | String \| null | Paid timestamp |
+| createdAt / updatedAt | String | ISO timestamps |
+| group | Object \| null | Populated group summary: `{ groupId, groupName }` only |
+
+> **Notes:**
+> - `merNo` is **not** returned in payin search results (it remains available as a filter).
+> - The nested `group` object returns **only** `groupId` and `groupName` (no `_id`, `uid`, `status`, or `exchangeRate`).
+> - Heavy/internal fields such as `rawRequest`, `rawResponse`, `notifyUrl`, and `payViewUrl` are **not** included in search results.
+> - `hasMore` is `true` when the current page is full (`payins.length === limit`), useful for "load more" pagination.
+> - When `includeTotal=false`, `total` and `totalPages` are omitted from the response for speed.
 
 ---
 
