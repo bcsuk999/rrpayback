@@ -36,9 +36,7 @@ export const registerGroup = asyncHandler(async (req, res) => {
 
   let group = await Group.findOne({ groupId: gid });
   if (group) {
-    if (groupName) group.groupName = groupName;
-    await group.save();
-    return res.json({ _id: group._id, uid: group.uid, groupId: group.groupId, groupName: group.groupName, status: group.status });
+    return res.status(409).json({ error: 'Group already registered', uid: group.uid, groupId: group.groupId });
   }
 
   let newUid = uid ? String(uid) : genUid();
@@ -57,11 +55,11 @@ export const registerGroup = asyncHandler(async (req, res) => {
       exchangeRate: null,
     });
   } catch (err) {
-    // Handle race: if another request created the group concurrently, return existing one
+    // Handle race: if another request created the group concurrently, treat as already registered
     if (err?.code === 11000) {
       const existing = await Group.findOne({ groupId: gid });
       if (existing) {
-        return res.json({ _id: existing._id, uid: existing.uid, groupId: existing.groupId, groupName: existing.groupName, status: existing.status });
+        return res.status(409).json({ error: 'Group already registered', uid: existing.uid, groupId: existing.groupId });
       }
     }
     throw err;
