@@ -21,6 +21,54 @@ function escapeHtml(value) {
     .replace(/>/g, '&gt;');
 }
 
+function formatUser(from) {
+  if (!from) return '-';
+  const parts = [from.first_name, from.last_name].filter(Boolean).join(' ').trim();
+  const username = from.username ? `@${from.username}` : '';
+  const id = from.id != null ? `(${from.id})` : '';
+  return [parts || username || 'Unknown', username && parts ? username : '', id].filter(Boolean).join(' ').trim();
+}
+
+async function notifyOwnerError(ctx, config, details = {}) {
+  const ownerId = config?.ownerId;
+  if (!ownerId || !ctx?.api?.sendMessage) {
+    log.warn({ event: 'bot.owner_notify.skipped', ...ctxMeta(ctx), reason: 'missing_owner_or_api' }, 'owner notify skipped');
+    return;
+  }
+  const lines = [
+    '⚠️ Command error',
+    `Group: ${escapeHtml(details.groupName || ctx?.chat?.title || String(ctx?.chat?.id || '-'))}`,
+    `Group ID: ${escapeHtml(String(ctx?.chat?.id ?? '-'))}`,
+    `User: ${escapeHtml(details.userName || formatUser(ctx?.from))}`,
+    `Command: ${escapeHtml(details.command || ctx?.message?.text || '-')}`,
+  ];
+  if (details.orderId) lines.push(`Order ID: <code>${escapeHtml(details.orderId)}</code>`);
+  if (details.payUrl) lines.push(`Pay URL: ${escapeHtml(details.payUrl)}`);
+  if (details.error) lines.push(`Error: ${escapeHtml(details.error)}`);
+  const text = lines.join('\n');
+  try {
+    await ctx.api.sendMessage(ownerId, text, { parse_mode: 'HTML', disable_web_page_preview: true });
+    log.info({ event: 'bot.owner_notify.sent', ...ctxMeta(ctx), orderId: details.orderId || null }, 'owner notified of command error');
+  } catch (err) {
+    log.error({ event: 'bot.owner_notify.failed', ...ctxMeta(ctx), error: err?.message, response: err?.response?.body || err?.description }, 'failed to notify owner');
+  }
+}
+
+function isGroupChat(ctx) {
+  const t = ctx?.chat?.type;
+  return t === 'group' || t === 'supergroup';
+}
+
+async function reportCommandError(ctx, config, details = {}, fallbackToGroup = '⚠️ Something went wrong. Owner has been notified.') {
+  log.warn({ event: 'bot.command.error_reported', ...ctxMeta(ctx), ...details }, 'command error reported');
+  if (isGroupChat(ctx)) {
+    await notifyOwnerError(ctx, config, details);
+    return fallbackToGroup;
+  }
+  // In private chats, show the actual error (useful for owner/debug)
+  return details.userMessage || `❌ ${escapeHtml(details.error || 'Error')}`;
+}
+
 async function fetchGroupById(chatId) {
   try {
     const port = process.env.PORT || 4000;
@@ -59,6 +107,7 @@ const MD_LINE = '/md, /me - Toggle maintenance mode (owner only)';
 
 // Telegram message ids of the deposit slips sent by /d, keyed by payOrderNo (for edit-in-place).
 const depositMsgIds = new Map();
+let _config = null;
 
 function rememberDepositMessage(orderNo, messageId) {
   if (orderNo && messageId) depositMsgIds.set(String(orderNo), messageId);
@@ -106,7 +155,15 @@ async function safeHandler(name, ctx, fn) {
   } catch (err) {
     log.error({ event: 'bot.handler_error', handler: name, ...ctxMeta(ctx), err }, 'bot command handler failed');
     try {
-      await reply(ctx, '❌ Internal error. Please try again later.');
+      if (isGroupChat(ctx)) {
+        await notifyOwnerError(ctx, _config, {
+          command: ctx?.message?.text || name,
+          error: err?.message || 'Internal error',
+        });
+        await reply(ctx, '⚠️ Something went wrong. Owner has been notified.');
+      } else {
+        await reply(ctx, '❌ Internal error. Please try again later.');
+      }
     } catch (_) {}
   }
 }
@@ -176,6 +233,8 @@ async function handleOrder(ctx, config) {
 
       // Do not send deposit slip unless UPI ID and amount are available from deeplink
       if (!upiId || !data.deeplinkAmount) {
+        const reason = data.reason || data.stateInfo || 'UPI/deeplink data missing';
+        const payUrl = data.payURL || data.payUrl || '';
         log.warn({
           event: 'bot.deposit.missing_deeplink_data',
           ...ctxMeta(ctx),
@@ -183,13 +242,22 @@ async function handleOrder(ctx, config) {
           upiIdPresent: Boolean(upiId),
           deeplinkAmount: data.deeplinkAmount || null,
           totalAmount: data.totalAmount || null,
-          hasPayURL: Boolean(data?.payURL || data?.payUrl),
+          hasPayURL: Boolean(payUrl),
+          reason,
         }, 'deposit order missing deeplink upi/amount; not sending slip');
-        const reason = data.reason || data.stateInfo || 'UPI/deeplink data missing';
-        const payUrl = data.payURL || data.payUrl || '';
-        const lines = [`❌ ${escapeHtml(reason)}`];
-        if (payUrl) lines.push(`Pay URL: ${escapeHtml(payUrl)}`);
-        return editOrSend(lines.join('\n'));
+        const groupMsg = await reportCommandError(ctx, config, {
+          command: ctx?.message?.text || '/d',
+          error: reason,
+          orderId: orderNo || null,
+          payUrl: payUrl || null,
+        }, '⚠️ Deposit could not be created. Owner has been notified.');
+        // In private/owner chat show details
+        if (!isGroupChat(ctx)) {
+          const lines = [`❌ ${escapeHtml(reason)}`];
+          if (payUrl) lines.push(`Pay URL: ${escapeHtml(payUrl)}`);
+          return editOrSend(lines.join('\n'));
+        }
+        return editOrSend(groupMsg);
       }
 
       const deposit = buildDepositReply({
@@ -205,25 +273,43 @@ async function handleOrder(ctx, config) {
       return sentMsg;
     }
 
+    const reason = data.reason || data.stateInfo || data.error || data?.raw?.slice?.(0, 120) || 'unknown';
+    const payUrl = data.payURL || data.payUrl || '';
+    const orderId = data.payOrderNo || null;
     log.warn({
       event: 'bot.deposit.rejected',
       ...ctxMeta(ctx),
       httpStatus: res.status,
       resultCode: data?.resultCode,
       stateInfo: data?.stateInfo,
-      reason: data?.reason || null,
+      reason,
       error: data?.error,
-      payURL: data?.payURL || data?.payUrl || null,
+      payURL: payUrl || null,
+      orderId,
       responseKeys: data && typeof data === 'object' ? Object.keys(data) : null,
     }, 'deposit order rejected');
-    const reason = data.reason || data.stateInfo || data.error || data?.raw?.slice?.(0, 120) || 'unknown';
-    const payUrl = data.payURL || data.payUrl || '';
-    const lines = [`❌ ${escapeHtml(reason)}`];
-    if (payUrl) lines.push(`Pay URL: ${escapeHtml(payUrl)}`);
-    return editOrSend(lines.join('\n'));
+    const groupMsg = await reportCommandError(ctx, config, {
+      command: ctx?.message?.text || '/d',
+      error: reason,
+      orderId,
+      payUrl: payUrl || null,
+    }, '⚠️ Deposit could not be created. Owner has been notified.');
+    if (!isGroupChat(ctx)) {
+      const lines = [`❌ ${escapeHtml(reason)}`];
+      if (payUrl) lines.push(`Pay URL: ${escapeHtml(payUrl)}`);
+      return editOrSend(lines.join('\n'));
+    }
+    return editOrSend(groupMsg);
   } catch (err) {
     log.error({ event: 'bot.deposit.error', ...ctxMeta(ctx), amount, err }, 'deposit command failed');
-    return editOrSend('❌ Error: ' + escapeHtml(err.message));
+    const groupMsg = await reportCommandError(ctx, config, {
+      command: ctx?.message?.text || '/d',
+      error: err?.message || 'Unknown error',
+    }, '⚠️ Deposit could not be created. Owner has been notified.');
+    if (!isGroupChat(ctx)) {
+      return editOrSend('❌ Error: ' + escapeHtml(err?.message || 'Unknown error'));
+    }
+    return editOrSend(groupMsg);
   }
 }
 
@@ -309,11 +395,20 @@ async function handleStatus(ctx) {
     return reply(ctx, lines.join('\n'));
   } catch (err) {
     log.error({ event: 'bot.status.error', ...ctxMeta(ctx), orderNo, err }, 'status command failed');
+    if (isGroupChat(ctx)) {
+      await notifyOwnerError(ctx, _config, {
+        command: ctx?.message?.text || '/status',
+        error: err?.message || 'Unknown error',
+        orderId: orderNo,
+      });
+      return reply(ctx, '⚠️ Could not fetch status. Owner has been notified.');
+    }
     return reply(ctx, '❌ Error: ' + escapeHtml(err.message));
   }
 }
 
 function register(bot, config) {
+  _config = config;
   bot.command('balance', async (ctx) => {
     const chat = ctx.chat || {};
     if (chat.type === 'private') return reply(ctx, 'Run /balance inside a registered group.');
