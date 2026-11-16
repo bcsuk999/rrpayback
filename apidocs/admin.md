@@ -279,15 +279,12 @@ Search and list payins with filters and pagination.
 
 | Parameter | Type | Remarks |
 | :-------- | :--- | :------ |
-| q | String | Exact match across identifiers/codes; case-sensitive prefix match for `upiId` and `payURL`, plus exact numeric `groupId` (max 128 chars) |
 | groupId | Number | Filter by Telegram/group ID |
 | orderId / payOrderNo | String | Filter by pay order number |
 | outTradeNo | String | Filter by merchant out trade number |
 | uid | String | Filter by group UID |
-| upi / upiId | String | Filter by UPI/VPA prefix (case-sensitive) |
 | amount | String | Filter by exact amount (`deeplinkAmount` or `totalAmount`) |
 | status | String | `pending` \| `success` \| `failed` \| `expired` |
-| payUrl / payURL | String | Filter by pay URL prefix (case-sensitive) |
 | payState | String | Provider pay state code |
 | currencyCode | String | Currency code |
 | payType | String | Payment type |

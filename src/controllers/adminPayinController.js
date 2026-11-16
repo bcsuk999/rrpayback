@@ -4,10 +4,6 @@ import Transaction from '../models/Transaction.js';
 import asyncHandler from '../utils/asyncHandler.js';
 import { notifyPayinSuccess } from '../bot/commands.js';
 
-function escapeRegex(value) {
-  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 function parseDate(value, endOfDay = false) {
   if (value === undefined || value === null || value === '') return null;
   const d = new Date(value);
@@ -41,26 +37,6 @@ export const listPayins = asyncHandler(async (req, res) => {
   const filter = {};
   const and = [];
 
-  // General search across common fields
-  if (req.query.q) {
-    const q = String(req.query.q).trim().slice(0, 128);
-    if (q) {
-      const or = [
-        { payOrderNo: q },
-        { outTradeNo: q },
-        { uid: q },
-        { upiId: { $regex: `^${escapeRegex(q)}` } },
-        { payURL: { $regex: `^${escapeRegex(q)}` } },
-        { merNo: q },
-        { utrCode: q },
-        { payState: q },
-      ];
-      const n = Number(q);
-      if (Number.isFinite(n)) or.push({ groupId: n });
-      and.push({ $or: or });
-    }
-  }
-
   if (req.query.groupId !== undefined && req.query.groupId !== '') {
     const n = Number(req.query.groupId);
     if (Number.isFinite(n)) filter.groupId = n;
@@ -69,13 +45,7 @@ export const listPayins = asyncHandler(async (req, res) => {
   if (req.query.payOrderNo) filter.payOrderNo = String(req.query.payOrderNo).trim();
   if (req.query.outTradeNo) filter.outTradeNo = String(req.query.outTradeNo).trim();
   if (req.query.uid) filter.uid = String(req.query.uid).trim();
-  if (req.query.upi || req.query.upiId) {
-    filter.upiId = { $regex: `^${escapeRegex(String(req.query.upi || req.query.upiId).trim())}` };
-  }
   if (req.query.status) filter.status = String(req.query.status).trim();
-  if (req.query.payUrl || req.query.payURL) {
-    filter.payURL = { $regex: `^${escapeRegex(String(req.query.payUrl || req.query.payURL).trim())}` };
-  }
   if (req.query.payState) filter.payState = String(req.query.payState).trim();
   if (req.query.currencyCode) filter.currencyCode = String(req.query.currencyCode).trim();
   if (req.query.payType) filter.payType = String(req.query.payType).trim();
