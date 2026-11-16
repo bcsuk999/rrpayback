@@ -11,6 +11,7 @@ import Merchant from '../models/Merchant.js';
 import Group from '../models/Group.js';
 import asyncHandler from '../utils/asyncHandler.js';
 import logger from '../utils/logger.js';
+import { extractUpiFromPayUrl } from '../services/upiExtractor.js';
 
 const log = logger.child({ scope: 'payin.order' });
 
@@ -205,13 +206,42 @@ export const createPayinOrder = asyncHandler(async (req, res) => {
   let responseBody = result.body;
   let responseText = result.text;
   let upiId = null;
+  let deeplinkAmount = null;
+  let deeplinkInfo = null;
+  let extractionError = null;
 
-  if (responseBody && typeof responseBody === 'object') {
-    upiId = extractUpiId(responseBody);
-    if (upiId && !responseBody.upiId) {
-      responseBody = { ...responseBody, upiId };
+  if (responseBody && typeof responseBody === 'object' && responseBody.resultCode === '0000') {
+    // Always require UPI ID and amount from deeplink before presenting order to user
+    const payUrl = responseBody.payURL || responseBody.payUrl;
+    const extracted = await extractUpiFromPayUrl(payUrl);
+    if (extracted.ok) {
+      upiId = extracted.upiId;
+      deeplinkAmount = extracted.amount;
+      deeplinkInfo = { deeplink: extracted.deeplink, payeeName: extracted.payeeName };
+      responseBody = { ...responseBody, upiId, deeplinkAmount };
+      // keep totalAmount as requested amount for consistency; bot can use deeplinkAmount if needed
+      responseText = JSON.stringify(responseBody);
+    } else {
+      extractionError = extracted.error || 'upi_extract_failed';
+      log.warn({
+        event: 'payin.upi_required_missing',
+        outTradeNo: payload.outTradeNo,
+        payOrderNo: responseBody.payOrderNo,
+        payUrl: payUrl || null,
+        reason: extractionError,
+      }, 'upi id/amount not available from deeplink; suppressing order response');
+      // Convert to rejection for caller so bot does not send slip
+      responseBody = {
+        resultCode: '9999',
+        stateInfo: 'UPI ID not available yet. Please try again.',
+        payOrderNo: responseBody.payOrderNo,
+        payURL: payUrl,
+      };
       responseText = JSON.stringify(responseBody);
     }
+  } else if (responseBody && typeof responseBody === 'object') {
+    // non-success: try best-effort extraction for logging only
+    upiId = extractUpiId(responseBody);
   }
 
   const responseLog = {
@@ -226,14 +256,17 @@ export const createPayinOrder = asyncHandler(async (req, res) => {
     stateInfo: responseBody?.stateInfo,
     payOrderNo: responseBody?.payOrderNo,
     upiId: upiId || null,
-    hasPayParams: Boolean(responseBody?.payParams),
-    responseKeys: responseBody && typeof responseBody === 'object' ? Object.keys(responseBody) : null,
+    deeplinkAmount: deeplinkAmount || null,
+    hasPayParams: Boolean(result.body?.payParams),
+    responseKeys: result.body && typeof result.body === 'object' ? Object.keys(result.body) : null,
+    extractionError: extractionError || null,
   };
-  if (responseBody?.resultCode === '0000') log.info(responseLog, 'rrpay payin order created');
+  if (result.body?.resultCode === '0000' && !extractionError) log.info(responseLog, 'rrpay payin order ready');
+  else if (result.body?.resultCode === '0000' && extractionError) log.warn(responseLog, 'rrpay payin order created but deeplink extraction failed');
   else log.warn(responseLog, 'rrpay payin order rejected');
 
-  // Persist a local Payin record on success so webhooks can update it.
-  if (responseBody && responseBody.resultCode === '0000' && responseBody.payOrderNo) {
+  // Persist a local Payin record on upstream success so webhooks can update it.
+  if (result.body && result.body.resultCode === '0000' && result.body.payOrderNo) {
     try {
       let merchant = await Merchant.findOne({ merNo: env.merchantNo });
       if (!merchant && env.merchantNo && env.merchantSecret) {
@@ -245,8 +278,9 @@ export const createPayinOrder = asyncHandler(async (req, res) => {
         });
       }
       if (merchant) {
+        const payUrl = result.body.payURL || result.body.payUrl;
         await Payin.create({
-          payOrderNo: responseBody.payOrderNo,
+          payOrderNo: result.body.payOrderNo,
           merchant: merchant._id,
           merNo: env.merchantNo,
           outTradeNo: payload.outTradeNo,
@@ -261,25 +295,26 @@ export const createPayinOrder = asyncHandler(async (req, res) => {
           payEmail: payload.payEmail,
           payPhone: payload.payPhone,
           payIp: payload.payIp,
-          payURL: responseBody.payURL || responseBody.payUrl,
+          payURL: payUrl,
           payViewUrl: payload.payViewUrl,
-          payParams: responseBody.payParams,
+          payParams: result.body.payParams,
           upiId: upiId || undefined,
+          deeplinkAmount: deeplinkAmount || undefined,
           status: 'pending',
           group: groupId ? (await Group.findOne({ groupId }))?._id : undefined,
           groupId: groupId ?? undefined,
           uid: uid ?? undefined,
           rawRequest: redactPayload(payload),
-          rawResponse: responseBody,
+          rawResponse: result.body,
         });
       }
-      log.info({ event: 'payin.persisted', outTradeNo: payload.outTradeNo, payOrderNo: responseBody.payOrderNo, upiId: upiId || null }, 'payin record persisted');
+      log.info({ event: 'payin.persisted', outTradeNo: payload.outTradeNo, payOrderNo: result.body.payOrderNo, upiId: upiId || null, extractionError: extractionError || null }, 'payin record persisted');
     } catch (err) {
-      log.error({ event: 'payin.persist_failed', outTradeNo: payload.outTradeNo, payOrderNo: responseBody?.payOrderNo, err }, 'failed to persist payin record');
+      log.error({ event: 'payin.persist_failed', outTradeNo: payload.outTradeNo, payOrderNo: result.body?.payOrderNo, err }, 'failed to persist payin record');
     }
   }
 
-  // Mirror RRPay (with enriched fields like upiId when available).
+  // Mirror RRPay (with enriched fields or rejection when deeplink data missing).
   if (responseText) {
     return res.status(result.status).type(responseBody ? 'application/json' : result.contentType).send(responseText);
   }

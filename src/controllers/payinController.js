@@ -157,9 +157,11 @@ export const getPayPage = asyncHandler(async (req, res) => {
     merNo: payin.merNo,
     outTradeNo: payin.outTradeNo,
     totalAmount: payin.totalAmount?.toString(),
+    deeplinkAmount: payin.deeplinkAmount || null,
     currencyCode: payin.currencyCode,
     payType: payin.payType,
     status: payin.status,
+    upiId: payin.upiId || null,
     createdAt: payin.createdAt,
     // TODO: render the real payment page / channel integration here.
   });

@@ -30,8 +30,9 @@ const payinSchema = new mongoose.Schema(
     uid: { type: String, index: true },
     // Reserved for channels that return a native payment string or QR payload.
     payParams: { type: String },
-    // Extracted UPI/VPA when available from provider response.
+    // Extracted UPI/VPA and amount when available from provider response or deeplink.
     upiId: { type: String },
+    deeplinkAmount: { type: String },
 
     status: {
       type: String,

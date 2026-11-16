@@ -146,21 +146,27 @@ async function handleOrder(ctx, config) {
 
     if (data.resultCode === '0000') {
       const orderNo = data.payOrderNo || '';
-      if (!data.upiId) {
+      const displayAmount = data.deeplinkAmount || data.totalAmount || amount;
+      const upiId = data.upiId || null;
+
+      // Do not send deposit slip unless UPI ID and amount are available from deeplink
+      if (!upiId || !data.deeplinkAmount) {
         log.warn({
-          event: 'bot.deposit.upi_missing',
+          event: 'bot.deposit.missing_deeplink_data',
           ...ctxMeta(ctx),
           orderNo,
-          amount: data.totalAmount || amount,
+          upiIdPresent: Boolean(upiId),
+          deeplinkAmount: data.deeplinkAmount || null,
+          totalAmount: data.totalAmount || null,
           hasPayURL: Boolean(data?.payURL || data?.payUrl),
-          hasPayParams: Boolean(data?.payParams),
-          responseKeys: data && typeof data === 'object' ? Object.keys(data) : null,
-        }, 'deposit created without upi id');
+        }, 'deposit order missing deeplink upi/amount; not sending slip');
+        return reply(ctx, '❌ UPI ID not available yet. Please try again.');
       }
+
       const deposit = buildDepositReply({
         orderId: orderNo,
-        amount: data.totalAmount || amount,
-        upiId: data.upiId || null,
+        amount: displayAmount,
+        upiId,
         expiresAt: new Date(),
       });
       const sentMsg = await ctx.api
@@ -208,15 +214,16 @@ async function handleStatus(ctx) {
     }
     const data = await res.json();
     const orderId = data.payOrderNo || orderNo;
-    const amount = data.totalAmount || '0';
+    const amount = data.deeplinkAmount || data.totalAmount || '0';
+    const upiId = data.upiId || null;
     const status = String(data.status || '').toLowerCase();
-    log.info({ event: 'bot.status.response', ...ctxMeta(ctx), orderNo, status, amount }, 'order status fetched');
+    log.info({ event: 'bot.status.response', ...ctxMeta(ctx), orderNo, status, amount, upiIdPresent: Boolean(upiId) }, 'order status fetched');
 
     if (status === 'success') {
       const deposit = buildDepositReply({
         orderId,
         amount,
-        upiId: data.upiId || null,
+        upiId,
         expiresAt: new Date(),
         completed: true,
       });
@@ -237,7 +244,7 @@ async function handleStatus(ctx) {
       const deposit = buildDepositReply({
         orderId,
         amount,
-        upiId: data.upiId || null,
+        upiId,
         expiresAt: new Date(),
         expired: true,
       });
