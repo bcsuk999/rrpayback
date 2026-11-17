@@ -51,7 +51,7 @@ export function verifyNgpaySign(params, apiKey) {
  * Create an NGPay pay order.
  * Returns { ok, status, url, request, body, text } — never throws on network failure.
  */
-export async function createNgpayOrder({ amount, merchantOrderNo, clientIp }) {
+export async function createNgpayOrder({ amount, merchantOrderNo, clientIp, payType }) {
   if (!NGPAY.baseUrl || !NGPAY.apiKey || !NGPAY.merchantNo || !NGPAY.productNo) {
     throw new Error(
       'NGPay credentials not configured. Set NGPAY_BASE_URL, NGPAY_API_KEY, NGPAY_MERCHANT_NO and NGPAY_PRODUCT_NO in .env',
@@ -69,7 +69,7 @@ export async function createNgpayOrder({ amount, merchantOrderNo, clientIp }) {
     merchantOrderNo,
     amount: normalized.toFixed(2),
     coinUnit: NGPAY.coinUnit,
-    payType: NGPAY.payType,
+    payType: payType || NGPAY.payType,
     productNo: NGPAY.productNo,
     productTitle: NGPAY.productTitle,
     notifyUrl: NGPAY.notifyUrl,

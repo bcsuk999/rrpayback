@@ -55,6 +55,7 @@ export const createNgpayOrder = asyncHandler(async (req, res) => {
     amount: body.amount,
     merchantOrderNo,
     clientIp: body.clientIp || clientIp,
+    payType: body.payType || ngpayGateway.payType || NGPAY.payType,
   });
 
   if (result.networkError) {
