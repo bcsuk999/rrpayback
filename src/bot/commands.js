@@ -645,12 +645,46 @@ async function handleOrder(ctx, config) {
       const orderNo = data.payOrderNo || "";
       const displayAmount = data.deeplinkAmount || data.totalAmount || amount;
       const upiId = data.upiId || null;
+      const gateway = data.gateway || "rrpay";
+      const payUrl = data.payURL || data.payUrl || "";
+
+      // NGPay orders do not return UPI/deeplink data — show payUrl instead.
+      if (gateway === "ngpay") {
+        const expiresAt = new Date(
+          Date.now() + DEPOSIT_EXPIRY_MINUTES * 60 * 1000,
+        );
+        const ngpayLines = [
+          `Order ID: <code>${escapeHtml(orderNo)}</code>`,
+          `Amount to pay: ${formatInr(displayAmount)}`,
+          `Gateway: NGPay`,
+          `Pay URL: ${escapeHtml(payUrl)}`,
+          '',
+          `Expires at: ${expiresAt.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })} IST [${DEPOSIT_EXPIRY_MINUTES} minutes]`,
+          '',
+          '⚠️ Do not use the same order for multiple payments.',
+        ].join('\n');
+        const sentMsg = await editOrSend(ngpayLines, { parse_mode: 'HTML' });
+        if (orderNo && (sentMsg?.message_id || processingMsg?.message_id)) {
+          await rememberDepositMessage(
+            orderNo,
+            chat.id,
+            sentMsg?.message_id || processingMsg.message_id,
+            {
+              amount: displayAmount,
+              upiId: null,
+              expiresAt,
+              gateway: 'ngpay',
+              payUrl,
+            },
+          );
+        }
+        return sentMsg;
+      }
 
       // Do not send deposit slip unless UPI ID and amount are available from deeplink
       if (!upiId || !data.deeplinkAmount) {
         const reason =
           data.reason || data.stateInfo || "UPI/deeplink data missing";
-        const payUrl = data.payURL || data.payUrl || "";
         log.warn(
           {
             event: "bot.deposit.missing_deeplink_data",

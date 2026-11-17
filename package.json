@@ -8,6 +8,7 @@
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
     "seed:merchant": "node scripts/seedMerchant.js",
+    "seed:gateways": "node scripts/seedGateways.js",
     "test:qr": "node scripts/testQrExtraction.js"
   },
   "dependencies": {

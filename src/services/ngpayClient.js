@@ -37,6 +37,16 @@ export function createNgpaySign(params, apiKey) {
     .toUpperCase();
 }
 
+export function verifyNgpaySign(params, apiKey) {
+  const provided = String(params?.sign ?? '').toUpperCase();
+  if (!provided) return false;
+
+  const expected = createNgpaySign(params, apiKey);
+  if (provided.length !== expected.length) return false;
+
+  return crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(expected));
+}
+
 /**
  * Create an NGPay pay order.
  * Returns { ok, status, url, request, body, text } — never throws on network failure.

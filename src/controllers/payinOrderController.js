@@ -6,12 +6,15 @@ import { CURRENCIES, canonicalCurrency, canonicalPayType } from '../config/payme
 import { createSign } from '../utils/signature.js';
 import { normalizeAmount, isValidAmount } from '../utils/validate.js';
 import { callRrpay } from '../services/rrpayClient.js';
+import { createNgpayOrder } from './ngpayOrderController.js';
 import Payin from '../models/Payin.js';
 import Merchant from '../models/Merchant.js';
 import Group from '../models/Group.js';
+import Gateway from '../models/Gateway.js';
 import asyncHandler from '../utils/asyncHandler.js';
 import logger from '../utils/logger.js';
 import { extractUpiFromPayUrl } from '../services/upiExtractor.js';
+import { nextPayOrderNo } from '../utils/orderNo.js';
 
 const log = logger.child({ scope: 'payin.order' });
 
@@ -32,7 +35,6 @@ function extractUpiId(body = {}) {
   for (const raw of candidates) {
     if (!raw || typeof raw !== 'string') continue;
     const text = raw.trim();
-    // upi://pay?pa=merchant@bank&...
     const paMatch = text.match(/[?&]pa=([^&\s]+)/i);
     if (paMatch) {
       try {
@@ -43,7 +45,6 @@ function extractUpiId(body = {}) {
         if (pa.includes('@')) return pa;
       }
     }
-    // plain VPA-like token
     const vpaMatch = text.match(/\b[a-zA-Z0-9.\-_]{2,}@[a-zA-Z]{2,}\b/);
     if (vpaMatch) return vpaMatch[0];
   }
@@ -51,8 +52,8 @@ function extractUpiId(body = {}) {
 }
 
 const DEFAULTS = {
-  payCardNo: '123456', // doc: fixed value allowed when you have no real account
-  payBankCode: 'PAY', // doc: fixed value allowed when no real encoding
+  payCardNo: '123456',
+  payBankCode: 'PAY',
   payName: 'xiaoming',
   payEmail: 'xiaoming@email.com',
   payPhone: '+917123456789',
@@ -64,7 +65,7 @@ function randomDigits(length) {
   return value;
 }
 
-function newOutTradeNo() {
+function newOutTradeNo(prefix = 'RROR') {
   const now = new Date();
   const stamp = [
     String(now.getFullYear()).slice(-2),
@@ -75,7 +76,7 @@ function newOutTradeNo() {
     String(now.getSeconds()).padStart(2, '0'),
   ].join('');
 
-  return `PI${stamp}${randomDigits(4)}`; // 18 chars, under the 20 limit
+  return `${prefix}${stamp}${randomDigits(4)}`;
 }
 
 function isPublicIp(ip) {
@@ -97,13 +98,36 @@ function payerIp(req, override) {
 
 /**
  * POST /payin/order
- * Body: { "amount": "150.00" } plus optional overrides (currencyCode, payType, notifyUrl,
- * payViewUrl, payName, payEmail, payPhone, payIp, payCardNo, payBankCode).
- * Builds the full RRPay /payin/create payload (sign included) and returns RRPay's exact response.
+ * Gateway-aware: creates an order on whichever gateway is currently active (rrpay or ngpay).
+ * Body: { "amount": "150.00" } plus optional overrides.
  */
 export const createPayinOrder = asyncHandler(async (req, res) => {
   const body = req.body ?? {};
 
+  // Determine which gateway is active (only one can be active at a time).
+  const [rrpayGateway, ngpayGateway] = await Promise.all([
+    Gateway.findOne({ name: 'rrpay' }).lean(),
+    Gateway.findOne({ name: 'ngpay' }).lean(),
+  ]);
+
+  const activeGateway =
+    (rrpayGateway && rrpayGateway.status === 'active') ? 'rrpay'
+    : (ngpayGateway && ngpayGateway.status === 'active') ? 'ngpay'
+    : null;
+
+  if (!activeGateway) {
+    return res.status(403).json({
+      error: 'No active gateway',
+      msg: 'Neither RRPay nor NGPay gateway is active. Enable one from admin to create orders.',
+    });
+  }
+
+  // Route to NGPay when ngpay is the active gateway.
+  if (activeGateway === 'ngpay') {
+    return createNgpayOrder(req, res);
+  }
+
+  // --- RRPay flow below ---
   if (!env.merchantNo || !env.merchantSecret) {
     return res.status(500).json({
       error: 'Merchant credentials missing',
@@ -150,7 +174,7 @@ export const createPayinOrder = asyncHandler(async (req, res) => {
     currencyCode,
     payType,
     randomNo: randomDigits(14),
-    outTradeNo: newOutTradeNo(),
+    outTradeNo: newOutTradeNo('RROR'),
     totalAmount: normalizeAmount(body.amount),
     notifyUrl: body.notifyUrl ?? RRPAY.notifyUrl,
     payCardNo: body.payCardNo ?? DEFAULTS.payCardNo,
@@ -211,7 +235,6 @@ export const createPayinOrder = asyncHandler(async (req, res) => {
   let extractionError = null;
 
   if (responseBody && typeof responseBody === 'object' && responseBody.resultCode === '0000') {
-    // Always require UPI ID and amount from deeplink before presenting order to user
     const payUrl = responseBody.payURL || responseBody.payUrl;
     const extracted = await extractUpiFromPayUrl(payUrl);
     if (extracted.ok) {
@@ -219,7 +242,6 @@ export const createPayinOrder = asyncHandler(async (req, res) => {
       deeplinkAmount = extracted.amount;
       deeplinkInfo = { deeplink: extracted.deeplink, payeeName: extracted.payeeName };
       responseBody = { ...responseBody, upiId, deeplinkAmount };
-      // keep totalAmount as requested amount for consistency; bot can use deeplinkAmount if needed
       responseText = JSON.stringify(responseBody);
     } else {
       extractionError = extracted.error || 'upi_extract_failed';
@@ -230,7 +252,6 @@ export const createPayinOrder = asyncHandler(async (req, res) => {
         payUrl: payUrl || null,
         reason: extractionError,
       }, 'upi id/amount not available from deeplink; suppressing order response');
-      // Convert to rejection for caller so bot does not send slip
       responseBody = {
         resultCode: '9999',
         stateInfo: `UPI/deeplink unavailable: ${extractionError}`,
@@ -241,7 +262,6 @@ export const createPayinOrder = asyncHandler(async (req, res) => {
       responseText = JSON.stringify(responseBody);
     }
   } else if (responseBody && typeof responseBody === 'object') {
-    // non-success: try best-effort extraction for logging only
     upiId = extractUpiId(responseBody);
   }
 
@@ -285,6 +305,7 @@ export const createPayinOrder = asyncHandler(async (req, res) => {
           merchant: merchant._id,
           merNo: env.merchantNo,
           outTradeNo: payload.outTradeNo,
+          gateway: 'rrpay',
           currencyCode: payload.currencyCode,
           payType: payload.payType,
           randomNo: payload.randomNo,
@@ -315,7 +336,6 @@ export const createPayinOrder = asyncHandler(async (req, res) => {
     }
   }
 
-  // Mirror RRPay (with enriched fields or rejection when deeplink data missing).
   if (responseText) {
     return res.status(result.status).type(responseBody ? 'application/json' : result.contentType).send(responseText);
   }

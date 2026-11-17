@@ -84,7 +84,7 @@ export const listPayins = asyncHandler(async (req, res) => {
   const includeTotal = String(req.query.includeTotal ?? 'true').toLowerCase() !== 'false';
 
   const payinsQuery = Payin.find(filter)
-    .select('payOrderNo outTradeNo uid groupId upiId totalAmount deeplinkAmount currencyCode payType status payState payURL utrCode paidAt createdAt updatedAt')
+    .select('payOrderNo outTradeNo uid groupId upiId gateway totalAmount deeplinkAmount currencyCode payType status payState payURL utrCode paidAt createdAt updatedAt')
     .sort({ createdAt: -1, _id: -1 })
     .skip(skip)
     .limit(limit)

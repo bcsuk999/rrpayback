@@ -6,6 +6,7 @@ const payinSchema = new mongoose.Schema(
     merchant: { type: mongoose.Schema.Types.ObjectId, ref: 'Merchant', required: true, index: true },
     merNo: { type: String, required: true, index: true },
     outTradeNo: { type: String, required: true },
+    gateway: { type: String, enum: ['rrpay', 'ngpay'], required: true, index: true },
 
     currencyCode: { type: String, required: true },
     payType: { type: String, required: true },

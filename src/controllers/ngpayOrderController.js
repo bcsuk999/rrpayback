@@ -1,0 +1,164 @@
+import { createNgpayOrder as createNgpayGatewayOrder } from '../services/ngpayClient.js';
+import { NGPAY } from '../config/ngpay.js';
+import { env } from '../config/env.js';
+import Payin from '../models/Payin.js';
+import Merchant from '../models/Merchant.js';
+import Group from '../models/Group.js';
+import Gateway from '../models/Gateway.js';
+import { nextPayOrderNo } from '../utils/orderNo.js';
+import asyncHandler from '../utils/asyncHandler.js';
+import logger from '../utils/logger.js';
+
+const log = logger.child({ scope: 'ngpay.order' });
+
+/**
+ * POST /api/ngpay/order
+ * Create an NGPay pay order (same shape as /payin/order but for the NGPay gateway).
+ * Body: { amount, groupId, uid, notifyUrl, viewUrl, clientIp, payType, coinUnit }
+ */
+export const createNgpayOrder = asyncHandler(async (req, res) => {
+  const body = req.body ?? {};
+
+  // Only active gateways are used to create orders.
+  const ngpayGateway = await Gateway.findOne({ name: 'ngpay' }).lean();
+  if (!ngpayGateway || ngpayGateway.status !== 'active') {
+    return res.status(403).json({
+      error: 'Gateway inactive',
+      msg: 'NGPay gateway is not active. Enable it from admin to create orders.',
+    });
+  }
+
+  if (!NGPAY.baseUrl || !NGPAY.apiKey || !NGPAY.merchantNo || !NGPAY.productNo) {
+    return res.status(500).json({
+      error: 'NGPay credentials missing',
+      detail: 'Set NGPAY_BASE_URL, NGPAY_API_KEY, NGPAY_MERCHANT_NO and NGPAY_PRODUCT_NO in .env',
+    });
+  }
+
+  if (!body.amount || String(body.amount).trim() === '') {
+    return res.status(400).json({
+      error: 'amount is required',
+      example: { amount: '150.00' },
+    });
+  }
+
+  const normalized = Number(body.amount);
+  if (!Number.isFinite(normalized) || normalized <= 0) {
+    return res.status(400).json({ error: 'Invalid amount', received: body.amount });
+  }
+
+  const merchantOrderNo = await nextPayOrderNo('NGOR');
+  const clientIp = String(req.ip ?? '').replace(/^::ffff:/, '') || '127.0.0.1';
+
+  const result = await createNgpayGatewayOrder({
+    amount: body.amount,
+    merchantOrderNo,
+    clientIp: body.clientIp || clientIp,
+  });
+
+  if (result.networkError) {
+    log.error({
+      event: 'ngpay.network_error',
+      merchantOrderNo,
+      amount: body.amount,
+      err: result.error,
+    }, 'ngpay order request failed');
+    return res.status(502).json({
+      error: 'NGPay request failed',
+      message: result.error.message,
+      code: result.error.code,
+      cause: result.error.cause,
+    });
+  }
+
+  if (!result.ok) {
+    return res.status(result.status).json({
+      error: 'NGPay order creation failed',
+      status: result.status,
+      statusText: result.statusText,
+      gatewayResponse: result.body,
+    });
+  }
+
+  const data = result.body?.data ?? result.body;
+  const orderNo = data?.orderNo;
+  const payUrl = data?.payUrl;
+
+  if (!orderNo) {
+    return res.status(500).json({
+      error: 'NGPay did not return an order number',
+      gatewayResponse: result.body,
+    });
+  }
+
+  // Persist locally so the NGPay notify callback can find and update this order.
+  try {
+    let merchant = await Merchant.findOne({ merNo: NGPAY.merchantNo });
+    if (!merchant && NGPAY.merchantNo && NGPAY.apiKey) {
+      merchant = await Merchant.create({
+        merNo: NGPAY.merchantNo,
+        name: 'NGPay Merchant',
+        secretKey: NGPAY.apiKey,
+        status: 'active',
+      });
+    }
+
+    if (merchant) {
+      const groupId = body.groupId ? Number(body.groupId) : null;
+      const uid = body.uid ? String(body.uid) : null;
+
+      await Payin.create({
+        payOrderNo: orderNo,
+        merchant: merchant._id,
+        merNo: NGPAY.merchantNo,
+        outTradeNo: merchantOrderNo,
+        gateway: 'ngpay',
+        currencyCode: body.coinUnit || NGPAY.coinUnit,
+        payType: body.payType || NGPAY.payType,
+        randomNo: merchantOrderNo,
+        totalAmount: normalized.toFixed(2),
+        notifyUrl: body.notifyUrl || NGPAY.notifyUrl || `${env.payUrlBase}/ngpay/notify`,
+        payViewUrl: body.viewUrl || NGPAY.viewUrl || undefined,
+        payCardNo: 'N/A',
+        payBankCode: 'N/A',
+        payName: body.productTitle || NGPAY.productTitle,
+        payEmail: 'test@test.com',
+        payPhone: '+917123456789',
+        payIp: clientIp,
+        payURL: payUrl || '',
+        status: 'pending',
+        group: groupId ? (await Group.findOne({ groupId }))?._id : undefined,
+        groupId: groupId ?? undefined,
+        uid: uid ?? undefined,
+        rawRequest: result.request,
+        rawResponse: result.body,
+      });
+      log.info(
+        { event: 'ngpay.order.persisted', payOrderNo: orderNo, merchantOrderNo, amount: body.amount },
+        'ngpay order persisted',
+      );
+    }
+  } catch (err) {
+    log.error(
+      { event: 'ngpay.order.persist_failed', merchantOrderNo, orderNo, err },
+      'failed to persist ngpay order',
+    );
+  }
+
+  // Normalize response for the bot/frontend (same shape as RRPay /payin/order)
+  return res.status(200).json({
+    resultCode: '0000',
+    stateInfo: data?.msg || 'success',
+    payOrderNo: orderNo,
+    merchantOrderNo,
+    totalAmount: normalized.toFixed(2),
+    currencyCode: body.coinUnit || NGPAY.coinUnit,
+    payType: body.payType || NGPAY.payType,
+    payURL: payUrl || '',
+    payUrl: payUrl || '',
+    upiId: null,
+    deeplinkAmount: null,
+    gateway: 'ngpay',
+    raw: result.body,
+  });
+});

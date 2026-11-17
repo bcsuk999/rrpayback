@@ -6,7 +6,8 @@ import payRouter from './routes/pay.js';
 import groupsRouter from './routes/groups.js';
 import adminAuthRouter from './routes/adminAuth.js';
 import adminRouter from './routes/admin.js';
-import testRouter from './routes/test.js';
+import ngpayRouter from './routes/ngpay.js';
+import gatewayRouter from './routes/gateway.js';
 import { getServerIp } from './controllers/ipController.js';
 
 const app = express();
@@ -62,8 +63,11 @@ app.use('/api/groups', groupsRouter);
 app.use('/api/admin/auth', adminAuthRouter);
 app.use('/api/admin', adminRouter);
 
-// Test endpoints (e.g. GET /api/test/ngpay/1000 creates a 1000 NGPay order).
-app.use('/api/test', testRouter);
+// NGPay order creation and async payment result callback (POST /api/ngpay/order, /api/ngpay/notify).
+app.use('/api/ngpay', ngpayRouter);
+
+// Admin gateway management (GET/PATCH /admin/gateways).
+app.use('/admin/gateways', gatewayRouter);
 
 app.get('/', (req, res) => {
   res.json({ status: 'ok', message: 'RRPAY backend running' });

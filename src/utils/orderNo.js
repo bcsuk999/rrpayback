@@ -44,9 +44,9 @@ function nextTimeBasedId(prefix, date = new Date()) {
   return `${prefix}${dd}${mm}${yyyy}${timePart}`;
 }
 
-/** Payment order number: OR + ddmmyyyy + 9-digit time-of-day seconds. */
-export async function nextPayOrderNo(date = new Date()) {
-  return nextTimeBasedId('OR', date);
+/** Payment order number: prefix + ddmmyyyy + 9-digit time-of-day seconds. */
+export async function nextPayOrderNo(prefix = 'OR', date = new Date()) {
+  return nextTimeBasedId(prefix, date);
 }
 
 /** Transaction reference: TRN + ddmmyyyy + 9-digit time-of-day seconds. */
