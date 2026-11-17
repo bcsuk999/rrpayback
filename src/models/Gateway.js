@@ -15,6 +15,10 @@ const gatewaySchema = new mongoose.Schema(
       default: 'active',
       index: true,
     },
+    payType: {
+      type: String,
+      default: '',
+    },
     config: { type: mongoose.Schema.Types.Mixed, default: {} },
   },
   { timestamps: true }

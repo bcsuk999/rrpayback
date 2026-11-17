@@ -7,8 +7,8 @@ import Gateway from '../src/models/Gateway.js';
 await connectDB();
 
 const gateways = [
-  { name: 'rrpay', status: 'active', config: {} },
-  { name: 'ngpay', status: 'active', config: {} },
+  { name: 'rrpay', status: 'active', payType: 'INRT', config: {} },
+  { name: 'ngpay', status: 'active', payType: 'UPI_INRO', config: {} },
 ];
 
 for (const gw of gateways) {
@@ -19,7 +19,7 @@ for (const gw of gateways) {
   );
 }
 
-const all = await Gateway.find().select('name status createdAt updatedAt').lean();
+const all = await Gateway.find().select('name status payType createdAt updatedAt').lean();
 console.log('Gateways seeded:', JSON.stringify(all, null, 2));
 
 await mongoose.disconnect();

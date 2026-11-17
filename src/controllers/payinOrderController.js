@@ -159,7 +159,8 @@ export const createPayinOrder = asyncHandler(async (req, res) => {
     });
   }
 
-  const payType = canonicalPayType(currencyCode, body.payType ?? RRPAY.payType);
+  const defaultPayType = (rrpayGateway && rrpayGateway.payType) ? rrpayGateway.payType : RRPAY.payType;
+  const payType = canonicalPayType(currencyCode, body.payType ?? defaultPayType);
   if (!payType) {
     return res.status(400).json({
       error: 'Invalid payType',

@@ -2,12 +2,12 @@ import Gateway from '../models/Gateway.js';
 import asyncHandler from '../utils/asyncHandler.js';
 
 /**
- * GET /admin/gateways
- * List all payment gateways with their status (active/inactive).
+ * GET /api/admin/gateways
+ * List all payment gateways with their status and pay type.
  */
 export const listGateways = asyncHandler(async (req, res) => {
   const gateways = await Gateway.find()
-    .select('name status config createdAt updatedAt')
+    .select('name status payType config createdAt updatedAt')
     .sort({ name: 1 })
     .lean();
 
@@ -15,15 +15,20 @@ export const listGateways = asyncHandler(async (req, res) => {
 });
 
 /**
- * PATCH /admin/gateways/:id
- * Update a gateway's status (active / inactive).
+ * PATCH /api/admin/gateways/:id
+ * Update a gateway's status (active / inactive) and/or pay type.
  * Only one gateway can be active at a time — activating one deactivates the other.
+ *
+ * Body:
+ *   { "status": "active" }           // activate / deactivate
+ *   { "payType": "JAZZ_CASH" }       // change payment type
+ *   { "status": "active", "payType": "JAZZ_CASH" } // both
  */
 export const updateGatewayStatus = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { status } = req.body ?? {};
+  const { status, payType } = req.body ?? {};
 
-  if (!status || !['active', 'inactive'].includes(status)) {
+  if (status !== undefined && !['active', 'inactive'].includes(status)) {
     return res.status(400).json({ success: false, msg: 'status must be "active" or "inactive"' });
   }
 
@@ -37,8 +42,14 @@ export const updateGatewayStatus = asyncHandler(async (req, res) => {
     await Gateway.updateMany({ name: { $ne: gateway.name } }, { status: 'inactive' });
   }
 
-  gateway.status = status;
+  if (status !== undefined) gateway.status = status;
+  if (payType !== undefined) gateway.payType = String(payType).trim();
+
   await gateway.save();
 
-  return res.json({ success: true, msg: `Gateway ${gateway.name} set to ${status}`, gateway });
+  return res.json({
+    success: true,
+    msg: `Gateway ${gateway.name} updated`,
+    gateway,
+  });
 });
