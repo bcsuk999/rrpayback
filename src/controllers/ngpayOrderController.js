@@ -2,11 +2,10 @@ import {
   createNgpayOrder as createNgpayGatewayOrder,
   getNgpayOrderDetail,
   extractUpiFromIframeUrl,
-  extractUpiFromIframe,
 } from '../services/ngpayClient.js';
 import { NGPAY } from '../config/ngpay.js';
 import { env } from '../config/env.js';
-import { extractUpiFromPayUrl, parseUpiDeeplink, extractUpiFromIframe as extractUpiFromIframeAlt } from '../services/upiExtractor.js';
+import { extractUpiFromPayUrl, parseUpiDeeplink, extractUpiFromIframe } from '../services/upiExtractor.js';
 import Payin from '../models/Payin.js';
 import Merchant from '../models/Merchant.js';
 import Group from '../models/Group.js';
