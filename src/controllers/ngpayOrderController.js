@@ -1,7 +1,7 @@
 import { createNgpayOrder as createNgpayGatewayOrder } from '../services/ngpayClient.js';
 import { NGPAY } from '../config/ngpay.js';
 import { env } from '../config/env.js';
-import { extractUpiFromPayUrl } from '../services/upiExtractor.js';
+import { extractUpiFromPayUrl, parseUpiDeeplink } from '../services/upiExtractor.js';
 import Payin from '../models/Payin.js';
 import Merchant from '../models/Merchant.js';
 import Group from '../models/Group.js';
@@ -95,6 +95,7 @@ export const createNgpayOrder = asyncHandler(async (req, res) => {
 
   const orderNo = ngpayData.orderNo;
   const payUrl = ngpayData.payUrl || ngpayData.payURL || '';
+  const payContent = ngpayData.payContent || '';
 
   if (!orderNo) {
     return res.status(500).json({
@@ -103,14 +104,26 @@ export const createNgpayOrder = asyncHandler(async (req, res) => {
     });
   }
 
-  // Extract UPI ID and amount from payUrl (same as RRPay flow)
+  // Extract UPI ID and amount.
+  // 1) First check payContent (NGPay QR content, may contain UPI deeplink).
+  // 2) Then try extracting from payUrl.
   let upiId = null;
   let deeplinkAmount = null;
-  if (payUrl) {
+
+  if (payContent && typeof payContent === 'string') {
+    const contentTrimmed = payContent.trim();
+    if (/^upi:\/\//i.test(contentTrimmed)) {
+      const parsed = parseUpiDeeplink(contentTrimmed);
+      if (parsed?.upiId) upiId = parsed.upiId;
+      if (parsed?.amount) deeplinkAmount = parsed.amount;
+    }
+  }
+
+  if ((!upiId || !deeplinkAmount) && payUrl) {
     const extracted = await extractUpiFromPayUrl(payUrl);
     if (extracted.ok) {
-      upiId = extracted.upiId;
-      deeplinkAmount = extracted.amount;
+      if (!upiId && extracted.upiId) upiId = extracted.upiId;
+      if (!deeplinkAmount && extracted.amount) deeplinkAmount = extracted.amount;
     }
   }
 
