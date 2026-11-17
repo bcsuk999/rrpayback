@@ -66,8 +66,8 @@ app.use('/api/admin', adminRouter);
 // NGPay order creation and async payment result callback (POST /api/ngpay/order, /api/ngpay/notify).
 app.use('/api/ngpay', ngpayRouter);
 
-// Admin gateway management (GET/PATCH /admin/gateways).
-app.use('/admin/gateways', gatewayRouter);
+// Admin gateway management (GET/PATCH /api/admin/gateways).
+app.use('/api/admin/gateways', gatewayRouter);
 
 app.get('/', (req, res) => {
   res.json({ status: 'ok', message: 'RRPAY backend running' });
