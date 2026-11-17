@@ -8,6 +8,7 @@ import {
 import logger from "../utils/logger.js";
 import Payin from "../models/Payin.js";
 import Group from "../models/Group.js";
+import { env } from "../config/env.js";
 
 const log = logger.child({ scope: "bot" });
 
@@ -570,6 +571,18 @@ async function handleOrder(ctx, config) {
   const args = text.split(/\s+/).slice(1);
   const amount = args[0];
   if (!amount) return reply(ctx, "Usage: /d &lt;amount&gt; (e.g. /d 100.00)");
+
+  const amountNum = Number(amount);
+  if (!Number.isFinite(amountNum) || amountNum <= 0) {
+    return reply(ctx, "❌ Invalid amount. Please enter a positive number.");
+  }
+  if (amountNum > env.botPayinOrderLimit) {
+    return reply(
+      ctx,
+      `❌ Amount exceeds the payin order limit of ₹${env.botPayinOrderLimit.toLocaleString()}. ` +
+        `Please create an order for ₹${env.botPayinOrderLimit.toLocaleString()} or less.`,
+    );
+  }
 
   // Send processing message first, then edit with result
   let processingMsg = null;

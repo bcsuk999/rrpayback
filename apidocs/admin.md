@@ -716,6 +716,155 @@ Manually create a `credit` or `debit` transaction for any group/user by UID. Upd
 
 ---
 
+## Admin API — Payout Management
+
+### `POST /admin/payouts`
+
+Submit a RRPAY payout order via `{RRPAY_BASE_URL}/cashOutExc/create` and debit the admin's group balance. The admin provides the payout details; `merNo`, `randomNo`, `outTradeNo`, `reqTimeStamp` and the `sign` are generated server-side.
+
+**Auth:** Required (Bearer token)
+
+**Request**
+
+- Method: `POST`
+- URL: `/admin/payouts`
+
+**Request Body** (`Content-Type: application/json`)
+
+| Parameter | Type | Required | Remarks |
+| :-------- | :--- | :------- | :------ |
+| uid | String | One of uid/groupId | Group UID whose balance is debited |
+| groupId | Number | One of uid/groupId | Telegram/group ID whose balance is debited |
+| amount | Number/String | Yes | Positive payout amount, up to 2 decimals (e.g. `100.50`) |
+| currencyCode | String | No | Currency code, default `INR` (INR, MXN, PKR, VND, IDR, BDT, PHP, BRL) |
+| bankCode | String | Yes | `IMPS` (bank card) or `UPI` |
+| identityType | String | Yes | Must match `bankCode` (`IMPS` or `UPI`) |
+| bankAcctNo | String | Yes | Recipient bank card number or UPI ID |
+| bankAcctName | String | Conditional | Recipient full name. Provide either this **or** `bankFirstName`+`bankLastName`, not both |
+| bankFirstName | String | Conditional | Recipient first name (with `bankLastName`) |
+| bankLastName | String | Conditional | Recipient last name (with `bankFirstName`) |
+| accPhone | String | Yes | Recipient phone with country code, e.g. `+919876543210` |
+| accEmail | String | Yes | Recipient email |
+| identityNo | String | Yes | IFSC (bank card) or UPI account number |
+| notifyUrl | String | No | Public RRPAY callback URL; defaults to `RRPAY_PAYOUT_NOTIFY_URL` |
+| remark | String | No | Admin note stored on the payout record |
+
+**Behavior**
+
+- The group balance is checked and **debited atomically** only when RRPAY accepts the submission (`0000`, or `E0001`/`E0002`/`E0003` meaning submitted to the bank).
+- A `Payout` record is created (`payoutOrderNo`, `outTradeNo`, state `submitted`) and a ledger `Transaction` (`type: debit`, `coType: payout`, `payoutState: submitted`) is recorded.
+- Gateway hard rejections (`9999`, `99`) are **not** debited and are recorded with state `rejected`.
+- A gateway/network failure returns `502` and no funds are debited.
+
+**Example Request**
+
+```json
+{
+  "uid": "49526",
+  "amount": 100.00,
+  "currencyCode": "INR",
+  "bankCode": "UPI",
+  "identityType": "UPI",
+  "bankAcctNo": "merchant@upi",
+  "bankAcctName": "Rahul Sharma",
+  "accPhone": "+919876543210",
+  "accEmail": "rahul@example.com",
+  "identityNo": "merchant@upi",
+  "notifyUrl": "https://rrpayback.onrender.com/payin/payout-notify",
+  "remark": "Salary payout"
+}
+```
+
+**Response — 201 Created (accepted by gateway)**
+
+```json
+{
+  "success": true,
+  "msg": "Payout order created",
+  "debited": true,
+  "payoutOrderNo": "PO17112026000046994",
+  "outTradeNo": "PO17112026000046994",
+  "remitOrderNo": "REMIT123456789",
+  "resultCode": "0000",
+  "resultMsg": "提交成功",
+  "state": "submitted",
+  "group": {
+    "uid": "49526",
+    "groupId": -5526650022,
+    "balance": "900.00"
+  },
+  "rrpay": { ... }
+}
+```
+
+**Response — 400 (hard rejection by gateway)**
+
+```json
+{
+  "success": false,
+  "msg": "Payout rejected by gateway: 参数校验有误",
+  "resultCode": "9999",
+  "resultMsg": "Missing parameters bankAcctNo!",
+  "payoutOrderNo": "PO17112026000046994",
+  "outTradeNo": "PO17112026000046994",
+  "rrpay": { ... }
+}
+```
+
+**Response — 502 (gateway unreachable)**
+
+```json
+{
+  "success": false,
+  "msg": "Payout gateway unreachable — order not created",
+  "error": "FetchError: ...",
+  "status": null,
+  "rawResponse": null
+}
+```
+
+**Errors**
+
+| Status | `success` | `msg` |
+| :----- | :-------- | :---- |
+| 400 | false | `amount must be a positive number with up to 2 decimals` |
+| 400 | false | `amount must be greater than 0` |
+| 400 | false | `Insufficient balance for payout` |
+| 400 | false | `Insufficient balance for payout (concurrent update)` |
+| 400 | false | `bankCode must be IMPS (bank card) or UPI` |
+| 400 | false | `identityType must match bankCode (IMPS or UPI)` |
+| 400 | false | `Provide either bankAcctName or bankFirstName+bankLastName, not both` |
+| 400 | false | `bankAcctName or bankFirstName+bankLastName is required` |
+| 400 | false | `bankAcctNo is required` / `accPhone is required` / `accEmail is required` / `identityNo is required` |
+| 400 | false | `Invalid accEmail` / `Invalid accPhone` |
+| 400 | false | `notifyUrl is required and must be a valid http(s) URL` |
+| 400 | false | `Payout rejected by gateway: ...` |
+| 404 | false | `Group not found` |
+| 500 | false | `Payout gateway is not configured (MERCHANT_NO / MERCHANT_SECRET missing)` |
+| 502 | false | `Payout gateway unreachable — order not created` |
+
+> **Note:** `resultCode: 0000` means the payout was **submitted** successfully — not that funds have landed. The final outcome arrives asynchronously via the payout notify URL (`remitState`: `00` success, `02`/`12` failure, `13` cancelled/no-deduction, `1000` failed+refunded). Orders submitted to the bank (`E0001`–`E0003`) must be reconciled against that callback before any refund.
+
+---
+
+## RRPAY Payout Result Callback
+
+### `POST /payin/payout-notify`
+
+RRPAY posts payout results to the `notifyUrl` configured for the payout. The callback must include a valid RRPAY `sign`, the configured `merNo`, `outTradeNo`, `totalAmount`, and `remitState`. Invalid signatures or malformed callbacks receive `FAIL`; a verified and processed callback receives the plain text `SUCCESS`.
+
+| `remitState` | Payout state | Group balance |
+| :----------- | :----------- | :------------ |
+| `00` | `success` | No change |
+| `02`, `12` | `failed` | Refunded; a credit transaction is recorded |
+| `13` | `cancelled` | Refunded; a credit transaction is recorded |
+| `1000` | `failed_refunded` | Refunded; a credit transaction is recorded |
+| `11` | `unclear` | No change pending a final result |
+
+Callbacks are idempotent for terminal payout states. The linked debit transaction's `payoutState`, payout state, group balance, and any refund ledger entry are committed together; callbacks for an unknown order receive `404 FAIL` so the order can be investigated.
+
+---
+
 ## Summary of Admin Endpoints
 
 | Method   | URL                           | Auth | Description                                  |
@@ -729,6 +878,7 @@ Manually create a `credit` or `debit` transaction for any group/user by UID. Upd
 | PATCH    | `/admin/payins/:id/approve`  | Yes  | Approve payin (admin action)                 |
 | GET      | `/admin/transactions`        | Yes  | Search transactions by uid/groupId + dates   |
 | POST     | `/admin/transactions`        | Yes  | Create manual credit/debit transaction       |
+| POST     | `/admin/payouts`             | Yes  | Submit a RRPAY payout order (cashOutExc)     |
 
 ---
 

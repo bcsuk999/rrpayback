@@ -22,4 +22,7 @@ export const env = {
   payUrlBase: (process.env.PAY_URL_BASE ?? `http://localhost:${port}/pay`).replace(/\/+$/, ''),
   merchantNo: process.env.MERCHANT_NO,
   merchantSecret: process.env.MERCHANT_SECRET,
+  rrpayPayoutNotifyUrl: process.env.RRPAY_PAYOUT_NOTIFY_URL,
+  // Max amount allowed for a single payin order created via the Telegram bot (/d).
+  botPayinOrderLimit: Number(process.env.BOT_PAYIN_ORDER_LIMIT ?? 50000),
 };

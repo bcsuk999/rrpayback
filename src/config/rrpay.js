@@ -9,6 +9,8 @@ export const RRPAY = {
   timeoutMs: 20000,
   /** Callback URL sent to RRPay for payment notifications (must be publicly reachable). */
   notifyUrl: 'https://rrpayback.onrender.com/payin/notify',
+  /** Callback URL sent to RRPAY for payout (cashOutExc) result notifications. */
+  payoutNotifyUrl: 'https://rrpayback.onrender.com/payin/payout-notify',
   /** Defaults applied when the caller only sends an amount. */
   currencyCode: 'INR',
   payType: 'INRT',

@@ -56,6 +56,9 @@ export const listTransactions = asyncHandler(async (req, res) => {
   if (req.query.payin && /^[0-9a-fA-F]{24}$/.test(String(req.query.payin))) {
     filter.payin = String(req.query.payin);
   }
+  if (req.query.payout && /^[0-9a-fA-F]{24}$/.test(String(req.query.payout))) {
+    filter.payout = String(req.query.payout);
+  }
 
   // Date filters (single day or range)
   const day = req.query.date;
@@ -79,7 +82,7 @@ export const listTransactions = asyncHandler(async (req, res) => {
   const includeTotal = String(req.query.includeTotal ?? 'true').toLowerCase() !== 'false';
 
   const transactionsQuery = Transaction.find(filter)
-    .select('transactionNo uid groupId amount type coType remark balanceAfter createdAt updatedAt -_id')
+    .select('transactionNo uid groupId amount type coType payin payout payoutState remark balanceAfter createdAt updatedAt -_id')
     .sort({ createdAt: -1, _id: -1 })
     .skip(skip)
     .limit(limit)

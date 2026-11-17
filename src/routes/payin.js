@@ -3,6 +3,7 @@ import { env } from '../config/env.js';
 import { createPayin, signPayinRequest } from '../controllers/payinController.js';
 import { createPayinOrder } from '../controllers/payinOrderController.js';
 import { handlePayinNotify } from '../controllers/payinNotifyController.js';
+import { handlePayoutNotify } from '../controllers/payoutNotifyController.js';
 
 const router = Router();
 
@@ -15,6 +16,9 @@ router.post('/order', createPayinOrder);
 
 // POST {DOMAIN_URL}/payin/notify — RRPay async payment result callback.
 router.post('/notify', handlePayinNotify);
+
+// POST {DOMAIN_URL}/payin/payout-notify — RRPAY async payout (cashOutExc) result callback.
+router.post('/payout-notify', handlePayoutNotify);
 
 // Dev-only sign helper used by Swagger UI. Never mounted in production.
 if (env.nodeEnv !== 'production') {
