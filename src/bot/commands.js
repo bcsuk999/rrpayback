@@ -642,7 +642,10 @@ async function handleOrder(ctx, config) {
     );
 
     if (data.resultCode === "0000") {
-      const orderNo = data.payOrderNo || "";
+      // Use our merchantOrderNo (RROR/NGOR prefix) as the display order ID,
+      // not the gateway's internal payOrderNo.
+      const orderNo = data.merchantOrderNo || data.payOrderNo || "";
+      const gatewayOrderNo = data.payOrderNo || "";
       const displayAmount = data.deeplinkAmount || data.totalAmount || amount;
       const upiId = data.upiId || null;
       const gateway = data.gateway || "rrpay";
@@ -703,6 +706,7 @@ async function handleOrder(ctx, config) {
               expiresAt,
               gateway: 'ngpay',
               payUrl,
+              gatewayOrderNo,
             },
           );
         }
@@ -896,7 +900,7 @@ async function handleQ(ctx, config) {
       "<b>Order Details</b>",
       "Group UID: <code>" + escapeHtml(groupUid) + "</code>",
       "Group ID: <code>" + escapeHtml(String(groupId ?? "-")) + "</code>",
-      "Order ID: <code>" + escapeHtml(payin.payOrderNo || orderNo) + "</code>",
+      "Order ID: <code>" + escapeHtml(payin.outTradeNo || payin.payOrderNo || orderNo) + "</code>",
       "Status: " + escapeHtml(status),
       "UPI: <code>" + escapeHtml(upi) + "</code>",
       "Amount: <code>" + escapeHtml(String(amount ?? "-")) + "</code>",

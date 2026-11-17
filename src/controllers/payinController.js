@@ -149,7 +149,9 @@ export const signPayinRequest = asyncHandler(async (req, res) => {
 });
 
 export const getPayPage = asyncHandler(async (req, res) => {
-  const payin = await Payin.findOne({ payOrderNo: req.params.payOrderNo }).lean();
+  const payin = await Payin.findOne({
+    $or: [{ payOrderNo: req.params.payOrderNo }, { outTradeNo: req.params.payOrderNo }],
+  }).lean();
   if (!payin) return res.status(404).json({ error: 'Payment order not found' });
 
   return res.json({

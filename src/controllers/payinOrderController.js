@@ -242,7 +242,7 @@ export const createPayinOrder = asyncHandler(async (req, res) => {
       upiId = extracted.upiId;
       deeplinkAmount = extracted.amount;
       deeplinkInfo = { deeplink: extracted.deeplink, payeeName: extracted.payeeName };
-      responseBody = { ...responseBody, upiId, deeplinkAmount };
+      responseBody = { ...responseBody, upiId, deeplinkAmount, merchantOrderNo: payload.outTradeNo };
       responseText = JSON.stringify(responseBody);
     } else {
       extractionError = extracted.error || 'upi_extract_failed';
