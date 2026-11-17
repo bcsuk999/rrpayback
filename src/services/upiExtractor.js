@@ -267,7 +267,107 @@ async function decodeQrImage(imageUrl) {
   return code.data;
 }
 
-export async function extractUpiFromPayUrl(payUrl, { timeoutMs = 15000 } = {}) {
+function extractUpiFromHtml(html) {
+  if (!html || typeof html !== 'string') return { upiId: null, amount: null };
+
+  // 1) Look for UPI deeplink: upi://pay?pa=merchant@bank&am=100&...
+  const upiMatch = html.match(/upi:\/\/(?:pay\?)?[^&"\s<>'`]+/i);
+  if (upiMatch) {
+    try {
+      const deeplink = upiMatch[0].replace(/['">]<.*$/, '');
+      const parsed = parseUpiDeeplink(deeplink);
+      if (parsed?.upiId) return { upiId: parsed.upiId, amount: parsed.amount || null };
+    } catch {}
+  }
+
+  // 2) Look for VPA pattern: merchant@bank
+  const vpaMatch = html.match(/\b[a-zA-Z0-9.\-_]{2,}@[a-zA-Z]{2,}\b/);
+  if (vpaMatch) {
+    return { upiId: vpaMatch[0], amount: null };
+  }
+
+  // 3) Look for amount patterns: ₹500.00 or Rs. 500 or 500.00
+  const amtMatch = html.match(/[₹Rs\.]\s*([\d,]+\.?\d*)/i);
+  let amount = null;
+  if (amtMatch) {
+    amount = amtMatch[1].replace(/,/g, '');
+  }
+
+  return { upiId: null, amount };
+}
+
+async function extractFromNgpay(payUrl, orderAmount) {
+  const u = new URL(payUrl);
+  const res = await fetch(payUrl, {
+    method: 'GET',
+    headers: {
+      'user-agent': USER_AGENT,
+      'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'accept-language': 'en-IN,en;q=0.9',
+    },
+    redirect: 'follow',
+  });
+  if (!res.ok) throw new Error(`ngpay_fetch_failed_${res.status}`);
+
+  const html = await res.text();
+
+  // Extract from HTML
+  const extracted = extractUpiFromHtml(html);
+  if (extracted.upiId) {
+    const deeplink = `upi://pay?pa=${encodeURIComponent(extracted.upiId)}&am=${encodeURIComponent(orderAmount)}&cu=INR`;
+    return {
+      deeplink,
+      upiId: extracted.upiId,
+      amount: extracted.amount || String(orderAmount),
+      payeeName: null,
+    };
+  }
+
+  // Look for QR code images in HTML and decode them
+  const qrMatches = html.match(/<img[^>]+src=["']([^"']+)["']/gi);
+  if (qrMatches) {
+    for (const imgTag of qrMatches) {
+      const srcMatch = imgTag.match(/src=["']([^"']+)["']/);
+      if (!srcMatch) continue;
+      let qrUrl = srcMatch[1];
+      try {
+        if (qrUrl.startsWith('/')) qrUrl = `${u.origin}${qrUrl}`;
+        else if (!qrUrl.startsWith('http')) qrUrl = new URL(qrUrl, payUrl).href;
+
+        const qrData = await decodeQrImage(qrUrl);
+        if (/^upi:\/\//i.test(qrData.trim())) {
+          const parsed = parseUpiDeeplink(qrData.trim());
+          if (parsed?.upiId) {
+            const deeplink = `upi://pay?pa=${encodeURIComponent(parsed.upiId)}&am=${encodeURIComponent(orderAmount)}&cu=INR`;
+            return {
+              deeplink,
+              upiId: parsed.upiId,
+              amount: parsed.amount || String(orderAmount),
+              payeeName: parsed.payeeName || null,
+            };
+          }
+        } else if (qrData.includes('@')) {
+          // Raw VPA in QR
+          const upiId = qrData.trim().split(/\s/)[0];
+          const deeplink = `upi://pay?pa=${encodeURIComponent(upiId)}&am=${encodeURIComponent(orderAmount)}&cu=INR`;
+          return {
+            deeplink,
+            upiId,
+            amount: String(orderAmount),
+            payeeName: null,
+          };
+        }
+      } catch (_) {
+        // Try next QR image
+        continue;
+      }
+    }
+  }
+
+  throw new Error('ngpay_upi_extract_failed');
+}
+
+export async function extractUpiFromPayUrl(payUrl, { timeoutMs = 15000, orderAmount } = {}) {
   const started = Date.now();
   const host = (() => { try { return new URL(payUrl).host; } catch { return null; } })();
   try {
@@ -280,6 +380,8 @@ export async function extractUpiFromPayUrl(payUrl, { timeoutMs = 15000 } = {}) {
       parsed = await extractFromQuickPay(payUrl);
     } else if (params.get('payOrderNo') && (params.get('sign') || /epethub|l1mix|onepage/i.test(u.host + u.pathname))) {
       parsed = await extractFromEpetPay(payUrl);
+    } else if (/ngpayvip/i.test(u.host) || /\/pay\/cashier/i.test(u.pathname)) {
+      parsed = await extractFromNgpay(payUrl, orderAmount);
     } else if (params.get('orderNo') || params.get('orderno') || /\/payment/i.test(u.pathname)) {
       parsed = await extractFromWalletPay(payUrl);
     } else {

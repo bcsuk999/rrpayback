@@ -120,7 +120,7 @@ export const createNgpayOrder = asyncHandler(async (req, res) => {
   }
 
   if ((!upiId || !deeplinkAmount) && payUrl) {
-    const extracted = await extractUpiFromPayUrl(payUrl);
+    const extracted = await extractUpiFromPayUrl(payUrl, { orderAmount: normalized.toFixed(2) });
     if (extracted.ok) {
       if (!upiId && extracted.upiId) upiId = extracted.upiId;
       if (!deeplinkAmount && extracted.amount) deeplinkAmount = extracted.amount;
