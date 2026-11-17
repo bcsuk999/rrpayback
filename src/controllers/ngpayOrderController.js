@@ -1,4 +1,4 @@
-import { createNgpayOrder as createNgpayGatewayOrder } from '../services/ngpayClient.js';
+import { createNgpayOrder as createNgpayGatewayOrder, getNgpayOrderDetail, extractUpiFromIframeUrl } from '../services/ngpayClient.js';
 import { NGPAY } from '../config/ngpay.js';
 import { env } from '../config/env.js';
 import { extractUpiFromPayUrl, parseUpiDeeplink } from '../services/upiExtractor.js';
@@ -107,7 +107,8 @@ export const createNgpayOrder = asyncHandler(async (req, res) => {
 
   // Extract UPI ID and amount.
   // 1) First check payContent (NGPay QR content, may contain UPI deeplink).
-  // 2) Then try extracting from payUrl.
+  // 2) Then call order detail API to get iframeUrl which contains UPI parameter.
+  // 3) Then try extracting from payUrl.
   let upiId = null;
   let deeplinkAmount = null;
 
@@ -117,6 +118,32 @@ export const createNgpayOrder = asyncHandler(async (req, res) => {
       const parsed = parseUpiDeeplink(contentTrimmed);
       if (parsed?.upiId) upiId = parsed.upiId;
       if (parsed?.amount) deeplinkAmount = parsed.amount;
+    }
+  }
+
+  // Call NGPay order detail API to get iframeUrl with UPI parameter.
+  if ((!upiId || !deeplinkAmount) && orderNo) {
+    try {
+      const detail = await getNgpayOrderDetail(orderNo);
+      if (detail.ok && detail.body?.code === 200 && detail.body?.data) {
+        const detailData = detail.body.data;
+        const iframeUrl = detailData.iframeUrl || '';
+        const detailAmount = detailData.amount;
+
+        // Extract UPI from iframeUrl query parameter
+        if (iframeUrl) {
+          const extracted = extractUpiFromIframeUrl(iframeUrl, detailAmount || normalized.toFixed(2));
+          if (extracted.upiId && !upiId) upiId = extracted.upiId;
+          if (extracted.amount && !deeplinkAmount) deeplinkAmount = extracted.amount;
+        }
+
+        // Use amount from detail API if available
+        if (detailAmount && !deeplinkAmount) {
+          deeplinkAmount = String(detailAmount);
+        }
+      }
+    } catch (err) {
+      log.warn({ event: 'ngpay.order.detail_failed', orderNo, err }, 'failed to get ngpay order detail');
     }
   }
 

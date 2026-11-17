@@ -48,9 +48,86 @@ export function verifyNgpaySign(params, apiKey) {
 }
 
 /**
- * Create an NGPay pay order.
- * Returns { ok, status, url, request, body, text } — never throws on network failure.
+ * Get NGPay order detail by order number.
+ * Calls GET {baseUrl}/prod-api/open/payOrder/{orderNo}
+ * Returns order data including iframeUrl which contains UPI parameters.
  */
+export async function getNgpayOrderDetail(orderNo) {
+  if (!NGPAY.baseUrl) {
+    throw new Error('NGPay base URL not configured');
+  }
+
+  const url = `${NGPAY.baseUrl}/prod-api/open/payOrder/${orderNo}`;
+  let response;
+  try {
+    response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'accept': 'application/json',
+        'accept-language': 'en-US',
+      },
+      signal: AbortSignal.timeout(NGPAY.timeoutMs),
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      networkError: true,
+      url,
+      error: {
+        name: error.name,
+        message: error.message,
+        code: error.cause?.code ?? error.code,
+        cause: error.cause?.message,
+      },
+    };
+  }
+
+  const text = await response.text();
+  let body = null;
+  try {
+    body = text ? JSON.parse(text) : null;
+  } catch {
+    body = { raw: text };
+  }
+
+  return {
+    ok: response.ok,
+    status: response.status,
+    body,
+    text,
+    url,
+  };
+}
+
+/**
+ * Extract UPI ID and amount from NGPay iframeUrl.
+ * The iframeUrl contains query parameter `upi` (URL-encoded VPA).
+ */
+export function extractUpiFromIframeUrl(iframeUrl, orderAmount) {
+  if (!iframeUrl || typeof iframeUrl !== 'string') {
+    return { upiId: null, amount: String(orderAmount) };
+  }
+
+  try {
+    const u = new URL(iframeUrl);
+    const upi = u.searchParams.get('upi');
+    if (upi) {
+      const decodedUpI = decodeURIComponent(upi);
+      // upi parameter value is like "7815027388-1@mbkns" (VPA)
+      if (decodedUpI.includes('@')) {
+        return {
+          upiId: decodedUpI,
+          amount: String(orderAmount),
+        };
+      }
+    }
+  } catch (_) {
+    // Invalid URL
+  }
+
+  return { upiId: null, amount: String(orderAmount) };
+}
+
 export async function createNgpayOrder({ amount, merchantOrderNo, clientIp, payType }) {
   if (!NGPAY.baseUrl || !NGPAY.apiKey || !NGPAY.merchantNo || !NGPAY.productNo) {
     throw new Error(
