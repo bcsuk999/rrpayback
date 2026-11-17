@@ -367,6 +367,133 @@ async function extractFromNgpay(payUrl, orderAmount) {
   throw new Error('ngpay_upi_extract_failed');
 }
 
+/**
+ * Global iframe UPI & amount extractor.
+ * Works for any iframe URL:
+ *  1. Scans iframe URL query params for UPI (upi=, pa=, vpa=, amount=, am=, etc.)
+ *  2. Fetches iframe HTML and scans for VPA patterns (merchant@bank) and UPI deeplinks
+ *  3. Decodes QR code images embedded in the HTML
+ *  4. Falls back to gateway-specific extraction if available
+ *
+ * @param {string} iframeUrl - The iframe/cashier URL
+ * @param {string|number} orderAmount - Fallback amount if not found on page
+ * @returns {{upiId: string|null, amount: string|null, deeplink: string|null}}
+ */
+export async function extractUpiFromIframe(iframeUrl, orderAmount) {
+  if (!iframeUrl || typeof iframeUrl !== 'string') {
+    return { upiId: null, amount: String(orderAmount), deeplink: null };
+  }
+
+  try {
+    const u = new URL(iframeUrl);
+
+    // 1) Extract from iframe URL query parameters
+    const params = u.searchParams;
+    const upiParam =
+      params.get('upi') ||
+      params.get('pa') ||
+      params.get('vpa') ||
+      params.get('upiId') ||
+      null;
+
+    const amountParam =
+      params.get('amount') ||
+      params.get('am') ||
+      params.get('amt') ||
+      params.get('orderAmount') ||
+      null;
+
+    if (upiParam && upiParam.includes('@')) {
+      return {
+        upiId: decodeURIComponent(upiParam),
+        amount: amountParam ? String(amountParam) : String(orderAmount),
+        deeplink: `upi://pay?pa=${encodeURIComponent(decodeURIComponent(upiParam))}&am=${encodeURIComponent(amountParam || orderAmount)}&cu=INR`,
+      };
+    }
+
+    // 2) Fetch iframe HTML and scan for VPA/UPI patterns
+    const res = await fetch(iframeUrl, {
+      method: 'GET',
+      headers: {
+        'user-agent': USER_AGENT,
+        'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'accept-language': 'en-IN,en;q=0.9',
+      },
+      redirect: 'follow',
+    });
+
+    if (res.ok) {
+      const html = await res.text();
+
+      // Scan for UPI deeplink in HTML
+      const upiMatch = html.match(/upi:\/\/(?:pay\?)?[^&"\s<>'`]+/i);
+      if (upiMatch) {
+        try {
+          const deeplink = upiMatch[0].replace(/['">]<.*$/, '');
+          const parsed = parseUpiDeeplink(deeplink);
+          if (parsed?.upiId) {
+            return {
+              upiId: parsed.upiId,
+              amount: parsed.amount || String(orderAmount),
+              deeplink,
+            };
+          }
+        } catch {}
+      }
+
+      // Scan for VPA pattern in HTML
+      const vpaMatch = html.match(/\b[a-zA-Z0-9.\-_]{2,}@[a-zA-Z]{2,}\b/);
+      if (vpaMatch) {
+        return {
+          upiId: vpaMatch[0],
+          amount: String(orderAmount),
+          deeplink: `upi://pay?pa=${encodeURIComponent(vpaMatch[0])}&am=${encodeURIComponent(orderAmount)}&cu=INR`,
+        };
+      }
+
+      // 3) Decode QR code images embedded in HTML
+      const qrMatches = html.match(/<img[^>]+src=["']([^"']+)["']/gi);
+      if (qrMatches) {
+        for (const imgTag of qrMatches) {
+          const srcMatch = imgTag.match(/src=["']([^"']+)["']/);
+          if (!srcMatch) continue;
+          let qrUrl = srcMatch[1];
+          try {
+            if (qrUrl.startsWith('/')) qrUrl = `${u.origin}${qrUrl}`;
+            else if (!qrUrl.startsWith('http')) qrUrl = new URL(qrUrl, iframeUrl).href;
+
+            const qrData = await decodeQrImage(qrUrl);
+            const trimmed = qrData.trim();
+            if (/^upi:\/\//i.test(trimmed)) {
+              const parsed = parseUpiDeeplink(trimmed);
+              if (parsed?.upiId) {
+                return {
+                  upiId: parsed.upiId,
+                  amount: parsed.amount || String(orderAmount),
+                  deeplink: trimmed,
+                };
+              }
+            } else if (trimmed.includes('@')) {
+              const upiId = trimmed.split(/\s/)[0];
+              return {
+                upiId,
+                amount: String(orderAmount),
+                deeplink: `upi://pay?pa=${encodeURIComponent(upiId)}&am=${encodeURIComponent(orderAmount)}&cu=INR`,
+              };
+            }
+          } catch (_) {
+            continue;
+          }
+        }
+      }
+    }
+  } catch (_) {
+    // Fetch failed or parsing failed - return null
+  }
+
+  return { upiId: null, amount: String(orderAmount), deeplink: null };
+}
+
 export async function extractUpiFromPayUrl(payUrl, { timeoutMs = 15000, orderAmount } = {}) {
   const started = Date.now();
   const host = (() => { try { return new URL(payUrl).host; } catch { return null; } })();

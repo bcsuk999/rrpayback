@@ -650,9 +650,10 @@ async function handleOrder(ctx, config) {
       const upiId = data.upiId || null;
       const gateway = data.gateway || "rrpay";
       const payUrl = data.payURL || data.payUrl || "";
+      const showToGroup = data.showToGroup !== false; // default true
 
-      // If UPI ID and amount are available (from payUrl extraction), send UPI slip
-      // regardless of gateway — this works for both RRPay and NGPay.
+      // If UPI ID and amount are available (from payUrl/iframe extraction),
+      // send UPI slip to group — works for both RRPay and NGPay.
       if (upiId && data.deeplinkAmount) {
         const expiresAt = new Date(
           Date.now() + DEPOSIT_EXPIRY_MINUTES * 60 * 1000,
@@ -679,7 +680,58 @@ async function handleOrder(ctx, config) {
         return sentMsg;
       }
 
-      // NGPay orders without extractable UPI — show payUrl directly.
+      // NGPay orders without extractable UPI — do NOT send URL to group.
+      // Send owner-only alert with payour notification instead.
+      if (gateway === "ngpay" && !showToGroup) {
+        const expiresAt = new Date(
+          Date.now() + DEPOSIT_EXPIRY_MINUTES * 60 * 1000,
+        );
+
+        // Reply to user in group (generic message, no URL)
+        const groupMsg = [
+          `Order ID: <code>${escapeHtml(orderNo)}</code>`,
+          `Amount to pay: ${formatInr(displayAmount)}`,
+          `Gateway: NGPay`,
+          `Status: Payment link generated, awaiting UPI details.`,
+          '',
+          `Expires at: ${expiresAt.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })} IST [${DEPOSIT_EXPIRY_MINUTES} minutes]`,
+          '',
+          '⚠️ Do not use the same order for multiple payments.',
+        ].join('\n');
+
+        await editOrSend(groupMsg, { parse_mode: 'HTML' });
+
+        // Send owner-only alert with payour notification
+        try {
+          const ownerLines = [
+            '⚠️ NGPay UPI Extraction Failed',
+            '',
+            `Order ID: <code>${escapeHtml(orderNo)}</code>`,
+            `Gateway Order: <code>${escapeHtml(gatewayOrderNo)}</code>`,
+            `Amount: ${formatInr(displayAmount)}`,
+            `Gateway: NGPay`,
+            `Pay URL: ${escapeHtml(payUrl)}`,
+            `Group Chat ID: ${chat.id}`,
+            `Reason: Could not extract UPI ID or amount from NGPay response.`,
+            '',
+            'Please manually verify and inform the user.',
+          ].join('\n');
+
+          if (config?.ownerId && ctx?.api?.sendMessage) {
+            await ctx.api.sendMessage({
+              chat_id: config.ownerId,
+              text: ownerLines,
+              parse_mode: 'HTML',
+            });
+          }
+        } catch (err) {
+          log.error({ event: 'bot.ngpay.owner_alert_failed', orderNo, err }, 'failed to send owner alert');
+        }
+
+        return;
+      }
+
+      // NGPay orders with extractable UPI — show payUrl directly.
       if (gateway === "ngpay") {
         const expiresAt = new Date(
           Date.now() + DEPOSIT_EXPIRY_MINUTES * 60 * 1000,
@@ -855,7 +907,9 @@ async function handleQ(ctx, config) {
       { event: "bot.q.request", ...ctxMeta(ctx), orderNo },
       "q command requested",
     );
-    const payin = await Payin.findOne({ payOrderNo: orderNo }).lean();
+    const payin = await Payin.findOne({
+      $or: [{ payOrderNo: orderNo }, { outTradeNo: orderNo }],
+    }).lean();
     if (!payin) {
       log.warn(
         { event: "bot.q.not_found", ...ctxMeta(ctx), orderNo },
