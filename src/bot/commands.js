@@ -648,7 +648,35 @@ async function handleOrder(ctx, config) {
       const gateway = data.gateway || "rrpay";
       const payUrl = data.payURL || data.payUrl || "";
 
-      // NGPay orders do not return UPI/deeplink data — show payUrl instead.
+      // If UPI ID and amount are available (from payUrl extraction), send UPI slip
+      // regardless of gateway — this works for both RRPay and NGPay.
+      if (upiId && data.deeplinkAmount) {
+        const expiresAt = new Date(
+          Date.now() + DEPOSIT_EXPIRY_MINUTES * 60 * 1000,
+        );
+        const deposit = buildDepositReply({
+          orderId: orderNo,
+          amount: displayAmount,
+          upiId,
+          expiresAt,
+        });
+        const sentMsg = await editOrSend(deposit.text, deposit.options);
+        if (orderNo && (sentMsg?.message_id || processingMsg?.message_id)) {
+          await rememberDepositMessage(
+            orderNo,
+            chat.id,
+            sentMsg?.message_id || processingMsg.message_id,
+            {
+              amount: displayAmount,
+              upiId,
+              expiresAt,
+            },
+          );
+        }
+        return sentMsg;
+      }
+
+      // NGPay orders without extractable UPI — show payUrl directly.
       if (gateway === "ngpay") {
         const expiresAt = new Date(
           Date.now() + DEPOSIT_EXPIRY_MINUTES * 60 * 1000,

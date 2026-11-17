@@ -1,6 +1,7 @@
 import { createNgpayOrder as createNgpayGatewayOrder } from '../services/ngpayClient.js';
 import { NGPAY } from '../config/ngpay.js';
 import { env } from '../config/env.js';
+import { extractUpiFromPayUrl } from '../services/upiExtractor.js';
 import Payin from '../models/Payin.js';
 import Merchant from '../models/Merchant.js';
 import Group from '../models/Group.js';
@@ -80,15 +81,37 @@ export const createNgpayOrder = asyncHandler(async (req, res) => {
     });
   }
 
-  const data = result.body?.data ?? result.body;
-  const orderNo = data?.orderNo;
-  const payUrl = data?.payUrl;
+  // NGPay wraps response as { code, msg, data: {...} }
+  // Check business code (HTTP 200 can still carry code 500)
+  const ngpayData = result.body?.data ?? null;
+  if (result.body?.code !== 200 || !ngpayData) {
+    return res.status(500).json({
+      error: 'NGPay order creation failed',
+      code: result.body?.code,
+      msg: result.body?.msg,
+      gatewayResponse: result.body,
+    });
+  }
+
+  const orderNo = ngpayData.orderNo;
+  const payUrl = ngpayData.payUrl || ngpayData.payURL || '';
 
   if (!orderNo) {
     return res.status(500).json({
       error: 'NGPay did not return an order number',
       gatewayResponse: result.body,
     });
+  }
+
+  // Extract UPI ID and amount from payUrl (same as RRPay flow)
+  let upiId = null;
+  let deeplinkAmount = null;
+  if (payUrl) {
+    const extracted = await extractUpiFromPayUrl(payUrl);
+    if (extracted.ok) {
+      upiId = extracted.upiId;
+      deeplinkAmount = extracted.amount;
+    }
   }
 
   // Persist locally so the NGPay notify callback can find and update this order.
@@ -125,8 +148,10 @@ export const createNgpayOrder = asyncHandler(async (req, res) => {
         payEmail: 'test@test.com',
         payPhone: '+917123456789',
         payIp: clientIp,
-        payURL: payUrl || '',
+        payURL: payUrl,
         status: 'pending',
+        upiId: upiId || undefined,
+        deeplinkAmount: deeplinkAmount || undefined,
         group: groupId ? (await Group.findOne({ groupId }))?._id : undefined,
         groupId: groupId ?? undefined,
         uid: uid ?? undefined,
@@ -134,7 +159,14 @@ export const createNgpayOrder = asyncHandler(async (req, res) => {
         rawResponse: result.body,
       });
       log.info(
-        { event: 'ngpay.order.persisted', payOrderNo: orderNo, merchantOrderNo, amount: body.amount },
+        {
+          event: 'ngpay.order.persisted',
+          payOrderNo: orderNo,
+          merchantOrderNo,
+          amount: body.amount,
+          upiId: upiId || null,
+          deeplinkAmount: deeplinkAmount || null,
+        },
         'ngpay order persisted',
       );
     }
@@ -146,19 +178,24 @@ export const createNgpayOrder = asyncHandler(async (req, res) => {
   }
 
   // Normalize response for the bot/frontend (same shape as RRPay /payin/order)
+  const displayAmount = deeplinkAmount || normalized.toFixed(2);
+
   return res.status(200).json({
-    resultCode: '0000',
-    stateInfo: data?.msg || 'success',
-    payOrderNo: orderNo,
+    ok: true,
+    gateway: 'ngpay',
+    amount: normalized.toFixed(2),
     merchantOrderNo,
-    totalAmount: normalized.toFixed(2),
+    data: result.body, // raw NGPay response { code, msg, data: {...} }
+    // Normalized fields for bot/frontend compatibility
+    resultCode: '0000',
+    stateInfo: ngpayData.msg || 'success',
+    payOrderNo: orderNo,
+    totalAmount: displayAmount,
     currencyCode: body.coinUnit || NGPAY.coinUnit,
     payType: body.payType || NGPAY.payType,
-    payURL: payUrl || '',
-    payUrl: payUrl || '',
-    upiId: null,
-    deeplinkAmount: null,
-    gateway: 'ngpay',
-    raw: result.body,
+    payURL: payUrl,
+    payUrl: payUrl,
+    upiId: upiId || null,
+    deeplinkAmount: deeplinkAmount || null,
   });
 });
