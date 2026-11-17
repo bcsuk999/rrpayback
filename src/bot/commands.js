@@ -687,7 +687,6 @@ async function handleOrder(ctx, config) {
         const ngpayLines = [
           `Order ID: <code>${escapeHtml(orderNo)}</code>`,
           `Amount to pay: ${formatInr(displayAmount)}`,
-          `Gateway: NGPay`,
           `Pay URL: ${escapeHtml(payUrl)}`,
           '',
           `Expires at: ${expiresAt.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })} IST [${DEPOSIT_EXPIRY_MINUTES} minutes]`,

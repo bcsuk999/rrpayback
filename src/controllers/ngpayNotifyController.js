@@ -1,7 +1,11 @@
 import { NGPAY } from '../config/ngpay.js';
 import Payin from '../models/Payin.js';
+import Group from '../models/Group.js';
+import Transaction from '../models/Transaction.js';
 import { verifyNgpaySign } from '../services/ngpayClient.js';
 import asyncHandler from '../utils/asyncHandler.js';
+import { nextTransactionNo } from '../utils/orderNo.js';
+import { notifyPayinSuccess } from '../bot/commands.js';
 import logger from '../utils/logger.js';
 
 const log = logger.child({ scope: 'ngpay.notify' });
@@ -20,18 +24,45 @@ const log = logger.child({ scope: 'ngpay.notify' });
  *    execution.
  *
  * NGPay status mapping: 0=success / 1=failed / 2 and 3=pending / 99=refunded.
+ *
+ * On success this mirrors the RRPay payin notify flow: credit the linked
+ * group ledger, record a Transaction, and send the payin success notice to
+ * the Telegram group.
  */
 export const handleNgpayNotify = asyncHandler(async (req, res) => {
   const body = req.body ?? {};
 
-  log.info({ event: 'ngpay.notify.received', ngpayCallback: body }, 'NGPay notify callback received');
+  // ---- FULL CALLBACK LOGGING: log the complete request body as received ----
+  log.info(
+    {
+      event: 'ngpay.notify.received',
+      ngpayCallbackFull: body, // complete callback payload from NGPay
+      ngpayCallback: body,     // shorthand copy for quick filtering
+      remoteIp: req.ip,
+      method: req.method,
+      url: req.originalUrl,
+      headers: {
+        'content-type': req.headers['content-type'],
+        'accept-language': req.headers['accept-language'],
+      },
+    },
+    'NGPay notify callback received (full payload logged)',
+  );
 
   // Verify the NGPay signature.
   if (NGPAY.apiKey && body.sign) {
     const ok = verifyNgpaySign(body, NGPAY.apiKey);
     if (!ok) {
-      log.warn({ event: 'ngpay.notify.invalid_sign', body }, 'NGPay notify invalid sign');
-      return res.status(400).type('text/plain').send('FAIL');
+      log.warn(
+        { event: 'ngpay.notify.invalid_sign', ngpayCallbackFull: body },
+        'NGPay notify invalid sign',
+      );
+      const reply = 'FAIL';
+      log.warn(
+        { event: 'ngpay.notify.responded', reply, reason: 'invalid_sign' },
+        'NGPay notify replying FAIL (invalid sign)',
+      );
+      return res.status(400).type('text/plain').send(reply);
     }
   }
 
@@ -55,19 +86,40 @@ export const handleNgpayNotify = asyncHandler(async (req, res) => {
 
   if (!payin) {
     log.warn(
-      { event: 'ngpay.notify.unknown_order', merchantOrderNo, orderNo },
+      { event: 'ngpay.notify.unknown_order', merchantOrderNo, orderNo, ngpayCallbackFull: body },
       'NGPay notify: unknown order',
     );
     // Still acknowledge to stop retries.
-    return res.type('text/plain').send('SUCCESS');
+    const reply = 'SUCCESS';
+    log.info(
+      { event: 'ngpay.notify.responded', reply, reason: 'unknown_order' },
+      'NGPay notify replying SUCCESS (unknown order)',
+    );
+    return res.type('text/plain').send(reply);
   }
 
   // Idempotency: don't re-process a terminal state.
   if (payin.status === 'success' || payin.status === 'failed') {
-    return res.type('text/plain').send('SUCCESS');
+    log.info(
+      {
+        event: 'ngpay.notify.already_terminal',
+        payOrderNo: payin.payOrderNo,
+        status: payin.status,
+        ngpayCallbackFull: body,
+      },
+      'NGPay notify: order already in terminal state, skipping',
+    );
+    const reply = 'SUCCESS';
+    log.info(
+      { event: 'ngpay.notify.responded', reply, reason: 'already_terminal', payOrderNo: payin.payOrderNo },
+      'NGPay notify replying SUCCESS (already terminal)',
+    );
+    return res.type('text/plain').send(reply);
   }
 
   payin.rawCallback = body;
+
+  let groupChatId = payin.groupId;
 
   // NGPay status mapping:
   //   0 = success
@@ -79,6 +131,30 @@ export const handleNgpayNotify = asyncHandler(async (req, res) => {
     if (completedTime) payin.paidAt = new Date(Number(completedTime));
     else if (!payin.paidAt) payin.paidAt = new Date();
     if (transactionReference) payin.utrCode = transactionReference;
+
+    // Credit the group ledger (if linked) and record a transaction — same as RRPay.
+    if (payin.group) {
+      const group = await Group.findById(payin.group);
+      if (group) {
+        groupChatId = group.groupId;
+        const payAmount = Number(payin.totalAmount?.toString?.() ?? amount);
+        const current = Number(group.balance?.toString?.() ?? '0');
+        group.balance = (current + payAmount).toFixed(2);
+        await group.save();
+
+        await Transaction.create({
+          transactionNo: await nextTransactionNo(),
+          uid: group.uid,
+          groupId: group.groupId,
+          amount: payin.totalAmount,
+          type: 'credit',
+          coType: 'payin',
+          payin: payin._id,
+          balanceAfter: group.balance,
+          remark: `Payin ${payin.payOrderNo} confirmed by NGPay provider`,
+        });
+      }
+    }
   } else if (status === 1) {
     payin.status = 'failed';
   } else {
@@ -89,9 +165,37 @@ export const handleNgpayNotify = asyncHandler(async (req, res) => {
   await payin.save();
 
   log.info(
-    { event: 'ngpay.notify.updated', payOrderNo: payin.payOrderNo, status: payin.status },
+    {
+      event: 'ngpay.notify.updated',
+      payOrderNo: payin.payOrderNo,
+      merchantOrderNo,
+      orderNo,
+      status: payin.status,
+      providerStatus: status,
+      ngpayCallbackFull: body,
+    },
     'NGPay order status updated',
   );
 
-  return res.type('text/plain').send('SUCCESS');
+  // Send the payin success notice to the Telegram group (same as RRPay).
+  if (payin.status === 'success') {
+    await notifyPayinSuccess({
+      orderId: payin.payOrderNo,
+      amount: payin.deeplinkAmount || payin.totalAmount?.toString?.() || amount,
+      groupId: groupChatId,
+    });
+  }
+
+  const reply = 'SUCCESS';
+  log.info(
+    {
+      event: 'ngpay.notify.responded',
+      reply,
+      payOrderNo: payin.payOrderNo,
+      status: payin.status,
+    },
+    'NGPay notify replying SUCCESS',
+  );
+
+  return res.type('text/plain').send(reply);
 });
